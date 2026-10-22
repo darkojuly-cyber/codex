@@ -5,7 +5,7 @@
 ## 在自己的电脑启动
 
 1. 安装 Node.js 24 LTS（附带 npm）。
-2. 解压源码包，进入 `EvoMeme-v0.1` 文件夹，在该文件夹打开终端。
+2. 解压源码包，进入包含 `package.json` 的项目根目录，在该目录打开终端。GitHub ZIP 解压后的目录通常叫 `codex-evomeme-v0.1`；独立源码包目录叫 `EvoMeme-v0.1`。
 3. 执行：
 
    ```sh

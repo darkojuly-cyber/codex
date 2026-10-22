@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: evomeme
+      POSTGRES_DB: evomeme
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a local database password}
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: ["postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evomeme -d evomeme"]
+      interval: 5s
+      retries: 10
+volumes:
+  postgres:

@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+.git
+.data
+.env
+.env.*
+apps/admin-console/dist
+test-results
+playwright-report
+*.log

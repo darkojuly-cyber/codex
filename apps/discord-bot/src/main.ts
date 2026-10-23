@@ -6,6 +6,7 @@ import {
 import { runtime } from '../../../packages/core/src/runtime.js';
 import { AppError, ctas } from '../../../packages/core/src/config.js';
 import { readEnv } from '../../../packages/core/src/env.js';
+import { showWelcome, providerErrorDetails } from './welcome.js';
 
 const preflight = readEnv();
 if (preflight.APP_MODE !== 'discord') throw new Error('Use the local Console simulator in mock mode. Gateway requires APP_MODE=discord.');
@@ -28,15 +29,6 @@ async function showIdea(interaction: ChatInputCommandInteraction | ButtonInterac
   const seed = await service.idea(interaction.user.id);
   await interaction.editReply({ content: `**${seed.title}**\n${seed.seed_text}\n\nWhat if we made this a game?`, components: [ideaButtons(String(seed.id))], allowedMentions: noMentions });
 }
-async function showWelcome(interaction: ChatInputCommandInteraction | ButtonInteraction) {
-  const { body: c } = await service.current();
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId('idea:another').setLabel('Surprise Me!').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('links:current').setLabel('Explore EvoMeme').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('ticket:new').setLabel('Submit a Ticket').setStyle(ButtonStyle.Secondary),
-  );
-  await interaction.reply({ content: c.persona.welcome.replaceAll('{user}', interaction.user.username), flags: MessageFlags.Ephemeral, components: [row], allowedMentions: noMentions });
-}
 async function ticketModal(interaction: ChatInputCommandInteraction | ButtonInteraction) {
   const c = (await service.current()).body;
   if (!c.enabled.tickets || !c.channels.ticketCategory) throw new AppError(409, 'TICKETS_PENDING_APPROVAL');
@@ -53,16 +45,17 @@ async function handle(interaction: Interaction) {
   if (interaction.guildId !== env.DISCORD_GUILD_ID) return;
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === 'idea') return showIdea(interaction);
-    if (interaction.commandName === 'welcome') return showWelcome(interaction);
+    if (interaction.commandName === 'welcome') return showWelcome(interaction, async () => (await service.current()).body);
     if (interaction.commandName === 'ticket') return ticketModal(interaction);
   }
   if (interaction.isButton()) {
     if (interaction.customId === 'idea:another') return showIdea(interaction);
     if (interaction.customId === 'ticket:new') return ticketModal(interaction);
     if (interaction.customId === 'links:current') {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const { body: c } = await service.current();
       const links = ctas(c);
-      return interaction.reply({ content: links.length ? 'Keep cooking! Here are the currently available links.' : 'Anything can be a game. Product links are coming soon; try /idea in the meantime!', flags: MessageFlags.Ephemeral,
+      return interaction.editReply({ content: links.length ? 'Keep cooking! Here are the currently available links.' : 'Anything can be a game. Product links are coming soon; try /idea in the meantime!',
         components: links.length ? [new ActionRowBuilder<ButtonBuilder>().addComponents(...links.map(link => new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel(link.label).setURL(link.url)))] : [], allowedMentions: noMentions });
     }
     if (interaction.customId.startsWith('prompt:')) {
@@ -89,12 +82,12 @@ async function handle(interaction: Interaction) {
 client.on('interactionCreate', interaction => {
   void handle(interaction).catch(async error => {
     const message = error instanceof AppError ? error.code : error?.name === 'ZodError' ? 'Please check the form fields and try again.' : 'Something went wrong. Please try again or contact support.';
-    console.error(JSON.stringify({ event: 'interaction.failed', code: error instanceof AppError ? error.code : 'INTERACTION_ERROR' }));
+    console.error(JSON.stringify({ event: 'interaction.failed', code: error instanceof AppError ? error.code : 'INTERACTION_ERROR', ...providerErrorDetails(error) }));
     if (!interaction.isRepliable()) return;
     try {
       if (interaction.deferred || interaction.replied) await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral, allowedMentions: noMentions });
       else await interaction.reply({ content: message, flags: MessageFlags.Ephemeral, allowedMentions: noMentions });
-    } catch { console.error('Unable to report interaction failure'); }
+    } catch (reportError) { console.error(JSON.stringify({ event: 'interaction.report_failed', ...providerErrorDetails(reportError) })); }
   });
 });
 client.on('guildMemberUpdate', (_old, member) => {

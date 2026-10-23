@@ -6,6 +6,7 @@ import { exampleSeeds } from './seeds.js';
 import { z } from 'zod';
 import { TemplatePromptProvider, type PromptProvider } from '../../ai-adapter/src.js';
 import type { WelcomeAppearance } from './welcome-card.js';
+import { XpService } from './xp.js';
 
 export type Row = Record<string, unknown>;
 type Revision = Row & { id: string; version: number; body: Config; status: string };
@@ -13,7 +14,8 @@ export type Ticket = Row & { id: string; seq: number; creator_id: string; assign
 const ticketInput = z.object({ category: z.enum(['Bug', 'Creation Help', 'Account', 'Feature Request', 'Event', 'Other']), summary: z.string().trim().min(5).max(120), description: z.string().trim().min(10).max(3000) }).strict();
 
 export class CommunityService {
-  constructor(readonly db: Database, readonly transport: Transport, readonly mock = true, readonly prompts: PromptProvider = new TemplatePromptProvider()) {}
+  readonly xp: XpService;
+  constructor(readonly db: Database, readonly transport: Transport, readonly mock = true, readonly prompts: PromptProvider = new TemplatePromptProvider()) { this.xp = new XpService(db); }
   async audit(tx: Queryable, actor: string, action: string, entity: string | null = null, detail: Row = {}) {
     await tx.query('INSERT INTO audit_log(id,actor_id,action,entity_id,detail) VALUES($1,$2,$3,$4,$5)', [randomUUID(), actor, action, entity, JSON.stringify(detail)]);
   }
@@ -29,6 +31,7 @@ export class CommunityService {
         for (const [title, text, category] of exampleSeeds) await tx.query('INSERT INTO idea_seed(id,title,seed_text,category,active,moderation_status) VALUES($1,$2,$3,$4,$5,$6)', [randomUUID(), title, text, category, this.mock, this.mock ? 'MOCK_ONLY' : 'PENDING_APPROVAL']);
       }
     });
+    await this.xp.initialize();
     // An external send may have succeeded before a process died. Never blindly replay it.
     // Stale SENDING deliveries are surfaced as UNKNOWN by the worker after its lease interval.
   }
@@ -262,8 +265,8 @@ export class CommunityService {
     const counts = actor.role === 'SUPPORT' ? [] : await this.db.query('SELECT status,count(*)::int AS count FROM message_job GROUP BY status');
     return { mode: this.mock ? 'MOCK' : 'DISCORD', phase: (await this.current()).body.phase,
       openTickets: tickets.filter(t => !['CLOSED', 'FAILED', 'RESOLVED'].includes(t.status)).length,
-      messages: counts, ai: 'TEMPLATE_FALLBACK', xp: 'NOT_IMPLEMENTED / PENDING_APPROVAL', insights: 'NOT_IMPLEMENTED',
-      warnings: ['Brand assets missing: placeholder only', 'XP, Boost, DM, recurrence and automated moderation are disabled', 'Production activation requires sandbox validation and operator approval'],
+      messages: counts, ai: 'TEMPLATE_FALLBACK', xp: (await this.xp.current()).body.enabled ? 'ENABLED' : 'DISABLED', insights: 'NOT_IMPLEMENTED',
+      warnings: ['Brand assets missing: placeholder only', 'DM, recurrence and automated moderation are disabled', 'XP and Boost require approved published rules; message scoring also needs Message Content Intent'],
     };
   }
 }

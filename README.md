@@ -1,6 +1,6 @@
 # EvoMeme · Mimo Discord Bot + Community Console
 
-根据 `EvoMeme_DiscordBot_Codex_Spec_v1.0.zip` 实现的 **V0.1 可运行增量**。包含真实 Discord Gateway / REST 适配器、Web Console、API、持久化消息 Worker 和 PostgreSQL migrations。原始规格保存在 [docs/spec](docs/spec/README_START_HERE.md)。
+根据 `EvoMeme_DiscordBot_Codex_Spec_v1.0.zip` 实现的 **V0.2 可运行增量（含积分模块）**。包含真实 Discord Gateway / REST 适配器、Web Console、API、持久化消息 Worker 和 PostgreSQL migrations。原始规格保存在 [docs/spec](docs/spec/README_START_HERE.md)。
 
 **当前可本地开发和测试，尚未部署或通过真实 Discord sandbox 验收；不等于完整 PRD 已交付。** 不需要 Token 即可运行 Mock。Mock UI 与 API 都明确标记，不生成伪造运营统计。
 
@@ -26,7 +26,8 @@ npm run dev
 |---|---|
 | 基础与后台 | TypeScript monorepo、React Console、服务端 RBAC、Discord OAuth2 Code + 一次性 state、HttpOnly 会话、CSRF / Origin 校验、限流、审计、只读 Guild 审计 |
 | Lifecycle / Persona | 配置校验、草稿、发布、历史、乐观并发检查、回滚为待发布草稿、统一阶段 CTA、欢迎文案和 Prompt 模板 |
-| 欢迎 | 成员完成 Onboarding 后仅欢迎新加入者一次；事件去重、重启不重发、不补发历史用户；`/welcome` 自助回退、持久化按钮查询当前配置 |
+| 积分与奖励 | 规则草稿/审核/发布、账本与去重、等级/榜单、人工贡献、可选聊天计分和 Boost 核查；默认关闭，详见 [XP.md](docs/XP.md) |
+| 欢迎 | 原生 Onboarding 完成后自动发布卡片；未启用引导时入群后发布；事件去重、重启不重发、不批量补发历史用户；`/welcome` 自助回退、持久化按钮查询当前配置 |
 | Idea Machine | 20 条明确标记的 Mock 示例种子；生产示例种子禁用，需运营添加已审定种子；降重复抽取、每日生成限额、完整可玩游戏 Prompt 模板，无 Key 正常运行 |
 | 工单 | `/ticket` / Modal、私密频道显式覆盖、并发限额、幂等提交、失败清理、详情、状态/分配/内部备注、关闭/限期重开、Support 访问过滤 |
 | Messaging | 单频道纯文本、预览、草稿确认、立即/单次预约、取消、持久化交付回执、并发 Worker 抢占、429 延迟重试、异常状态人工核对、禁用群体 mentions |
@@ -70,6 +71,6 @@ TEST_DATABASE_URL='postgresql://…专用测试库…' npm test
 
 ## 明确的后续范围
 
-XP / Boost / 等级 / 周月排行榜、Insights / AutoMod / Known Issues、DM 订阅、重复任务、图片/Embed 消息模板、多频道审批、完整数据保留与删除流程、付费 AI Provider 和生产观测仍属于后续里程碑。界面和 API **没有把这些模块伪装为可用功能**。不做产品账号绑定 / VIP / 产品私有数据接口。
+积分规则、账本、等级、周月总榜和 Boost 核查已实现，默认计分关闭，使用方法见 [积分与奖励](docs/XP.md)。欢迎消息支持原生 Embed 卡片。Insights / AutoMod / Known Issues、DM 订阅、重复任务、通用图片/Embed 消息编辑器、多频道双人审批、完整数据保留与删除流程、付费 AI Provider 和生产观测仍属于后续里程碑。不做产品账号绑定 / VIP / 产品私有数据接口。
 
 原生 Discord Onboarding 与现有频道/角色始终保留；唯一可能新建的服务器资源是运营批准分类内、用户主动请求的私密工单频道。注册命令及 Gateway 写入必须显式开启，安装和 Mock 启动不连接 Discord。

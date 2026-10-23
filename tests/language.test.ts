@@ -39,15 +39,16 @@ describe('Console localization', () => {
     expect(formatDate('en', 'not a timestamp')).toBe('—');
   });
   it('has Chinese copy for every statically translated label and all feature switches', async () => {
-    const path = new URL('../apps/admin-console/src/main.tsx', import.meta.url);
-    const source = await readFile(path, 'utf8');
-    const ast = ts.createSourceFile('main.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
     const keys = new Set<string>();
-    function visit(node: ts.Node) {
-      if (ts.isCallExpression(node) && node.expression.getText(ast) === 't' && node.arguments[0] && ts.isStringLiteral(node.arguments[0])) keys.add(node.arguments[0].text);
-      ts.forEachChild(node, visit);
+    for (const filename of ['main.tsx', 'PointsPanel.tsx']) {
+      const source = await readFile(new URL(`../apps/admin-console/src/${filename}`, import.meta.url), 'utf8');
+      const ast = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+      function visit(node: ts.Node) {
+        if (ts.isCallExpression(node) && node.expression.getText(ast) === 't' && node.arguments[0] && ts.isStringLiteral(node.arguments[0])) keys.add(node.arguments[0].text);
+        ts.forEachChild(node, visit);
+      }
+      visit(ast);
     }
-    visit(ast);
     for (const key of keys) expect(zhCN[key], `Missing Chinese copy: ${key}`).toBeTruthy();
     for (const key of ['welcome', 'tickets', 'messaging', 'web', 'ios', 'android']) expect(zhCN[`feature.${key}`]).toBeTruthy();
   });

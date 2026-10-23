@@ -30,7 +30,7 @@ Mock 模式中的频道/消息 ID 带 `mock-` 前缀，不能用于真实 Discor
 
 表单类别精确支持 `Bug`, `Creation Help`, `Account`, `Feature Request`, `Event`, `Other`。Account 仅为通用支持分类，不绑定产品账号、不要求产品 UID/VIP。所有普通消息默认禁止 ping；自动欢迎只白名单提及当前新成员。附件在工单频道手动补充；本版不下载、持久备份 Discord 附件。
 
-本版未注册 `/points`, `/rank`, `/leaderboard`, `/notify`, `/xp`，因为相应里程碑尚未实现，不能宣称存在。
+本版新增 `/points rules`, `/points history`, `/rank`, `/leaderboard` 与欢迎卡的 XP Rules 按钮。积分运营与审核在 Web 后台完成，未注册 `/xp` 管理指令；`/notify` 仍未实现。见 [积分操作说明](XP.md)。
 
 ### 权限
 

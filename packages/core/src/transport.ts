@@ -81,6 +81,15 @@ export class DiscordTransport implements Transport {
     ]);
     return { mode: 'DISCORD_READ_ONLY', channels, roles, guild, note: 'Raw permissions only. Effective permissions must be reviewed before enabling features. No writes performed.' };
   }
+  async boostSince(user: string): Promise<Date | null> {
+    try {
+      const member = await this.rest.get(Routes.guildMember(this.env.DISCORD_GUILD_ID!, user)) as { premium_since: string | null; user?: { bot?: boolean } };
+      return member.user?.bot || !member.premium_since ? null : new Date(member.premium_since);
+    } catch (error) {
+      if ((error as { status?: number }).status === 404) return null;
+      throw error;
+    }
+  }
   async channelBelongsToGuild(id: string) {
     const channel = await this.rest.get(Routes.channel(id)) as { guild_id?: string; type: number };
     return channel.guild_id === this.env.DISCORD_GUILD_ID && channel.type === ChannelType.GuildText;

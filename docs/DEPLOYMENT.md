@@ -65,13 +65,13 @@ npm run bot
 npm run worker
 ```
 
-`bot:register` 替换该 Application 在指定测试 Guild 的命令集合为 `/welcome`、`/idea`、`/ticket`，不注册全局命令。此命令是显式写操作，不能放入安装脚本。后台 TLS 由反向代理终止，API 只通过内部网络暴露；使用 `HOST=0.0.0.0` 仅限真实模式的受控容器，不公开 API 明文端口。
+`bot:register` 替换该 Application 在指定测试 Guild 的命令集合为 `/welcome`、`/idea`、`/ticket`、`/points`、`/rank`、`/leaderboard`，不注册全局命令。此命令是显式写操作，不能放入安装脚本。后台 TLS 由反向代理终止，API 只通过内部网络暴露；使用 `HOST=0.0.0.0` 仅限真实模式的受控容器，不公开 API 明文端口。
 
 Console 登录后：Settings 绑定已核对的 ID → 保存草稿 → Lifecycle 检查完整草稿并发布。只有业务确认后才启用 welcome/tickets/messaging。配置只影响新交互；发送前 Worker 再核对 messaging 开关和频道白名单。旧 welcome 的自定义按钮实时查询当前配置，不静态嵌入过期产品 URL。
 
 自动欢迎需要 Developer Portal 开启 **Server Members Intent**，并设置 `GUILD_MEMBERS_INTENT=true`。Console 设置欢迎频道并启用 welcome，保存草稿后发布才会生效。开启原生 Onboarding 的服务器在完成 Onboarding 且通过成员筛选后向欢迎频道发布按钮卡片；未开启 Onboarding 的服务器在新成员入群且通过成员筛选后发布。数据库按成员去重，不会因其他成员信息更新重复欢迎。即使成员在 Bot 启动前入群，启动后收到其完成 Onboarding/成员筛选的实时事件也会处理；不会在启动时扫描或补发历史成员，停机期间已完成的成员可用 `/welcome` 补看。欢迎发送结果未知时标为 `UNKNOWN`，不自动再发。
 
-自动欢迎与 `/welcome` 共用紫色 Discord Embed 卡片，包含服务器图标、成员头像、后台配置的欢迎文案、引导分区和三个按钮。头像/图标直接使用 Discord CDN，不额外上传或保存；原有按钮 custom ID 保持不变。需要目标频道的 Embed Links 权限。外观结构示意见 [welcome-card-preview.png](screenshots/welcome-card-preview.png)，示意中的头像为占位，实际布局以 Discord 客户端为准。后台语言选择不会自动翻译频道内的卡片文案。
+自动欢迎与 `/welcome` 共用紫色 Discord Embed 卡片，包含服务器图标、成员头像、后台配置的欢迎文案、引导分区、原有三个按钮和 XP Rules 规则入口。头像/图标直接使用 Discord CDN，不额外上传或保存；原有按钮 custom ID 保持不变。需要目标频道的 Embed Links 权限。外观结构示意见 [welcome-card-preview.png](screenshots/welcome-card-preview.png)，示意中的头像为占位，实际布局以 Discord 客户端为准。后台语言选择不会自动翻译频道内的卡片文案。
 
 ## 6. 容器
 
@@ -91,3 +91,7 @@ Console 登录后：Settings 绑定已核对的 ID → 保存草稿 → Lifecycl
 - 工单关闭只更改业务状态；本版不自动归档/删除频道，也不吊销成员查看权限，不会将其改成公开。关闭前通过 Console 和工单频道与用户确认，按已审批保留策略手动归档。
 - PostgreSQL 备份：由平台定时使用 `pg_dump` 或托管备份；恢复到独立库，运行专用验收后再切换。备份含工单内容，应加密且限制员工访问。
 - Prompt 记录带 7 天到期字段，**本版没有自动清理 Worker**。正式收集用户数据前必须批准 retention、删除/导出流程、隐私告知和备份删除政策，不能将本地开发准备误认为生产上线许可。
+
+## 8. 积分增量
+
+积分新表由启动迁移自动创建；原有配置和账目不清空。默认所有计分关闭，须单独审核并发布积分规则。聊天计分需要 `MESSAGE_CONTENT_INTENT=true` 及 Portal 对应权限，Boost 核查需要成员 Intent 与 Worker。详见 [XP.md](XP.md)。所有接口按来源 IP 和固定路由分别限制每分钟 100 次，不按可变查询参数分桶。

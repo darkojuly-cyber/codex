@@ -11,7 +11,7 @@ it('builds a valid welcome embed with member artwork and the existing button rou
   expect(embed.color).toBe(0xa78bfa);
   expect(embed.description).toBe('Welcome Alice! @everyone');
   expect(embed.thumbnail?.url).toBe(avatarUrl);
-  expect(payload.components[0].components.map(button => 'custom_id' in button ? button.custom_id : '')).toEqual(['idea:another', 'links:current', 'ticket:new']);
+  expect(payload.components[0].components.map(button => 'custom_id' in button ? button.custom_id : '')).toEqual(['idea:another', 'links:current', 'ticket:new', 'xp:rules']);
   expect(embed.fields).toHaveLength(3);
 });
 

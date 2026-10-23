@@ -11,6 +11,7 @@ const schema = z.object({
   STAFF_ROLE_IDS: z.string().default(''), MODERATOR_ROLE_IDS: z.string().default(''), SUPPORT_ROLE_IDS: z.string().default(''), SUPER_ADMIN_USER_IDS: z.string().default(''),
   DISCORD_WRITES_ENABLED: z.enum(['true', 'false']).default('false'),
   GUILD_MEMBERS_INTENT: z.enum(['true', 'false']).default('false'),
+  MESSAGE_CONTENT_INTENT: z.enum(['true', 'false']).default('false'),
 });
 export function readEnv() {
   const raw = Object.fromEntries(Object.entries(process.env).filter(([, v]) => v !== ''));

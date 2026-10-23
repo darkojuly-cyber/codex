@@ -14,7 +14,7 @@ import { auth } from './auth.js';
 export async function createApp(service: CommunityService, env: Env) {
   const app = Fastify({ logger: { level: 'info', redact: ['req.headers.cookie', 'req.headers.authorization', 'req.headers.x-csrf-token', 'res.headers.set-cookie'] }, logController: new LogController({ disableRequestLogging: true }), bodyLimit: 32768 });
   await app.register(cookie);
-  await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
+  await app.register(rateLimit, { max: 100, timeWindow: '1 minute', keyGenerator: request => `${request.ip}:${request.routeOptions.url}` });
   app.addHook('onSend', async (_req, reply) => {
     reply.header('X-Content-Type-Options', 'nosniff').header('Referrer-Policy', 'no-referrer').header('X-Frame-Options', 'DENY').header('Cache-Control', 'no-store');
     reply.header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
@@ -73,6 +73,33 @@ export async function createApp(service: CommunityService, env: Env) {
   });
   app.post('/api/messages/:id/cancel', request => service.cancelJob(request.actor, paramId(request)));
   app.get('/api/audit', request => { service.require(request.actor, 'audit'); return service.db.query('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 200'); });
+  app.get('/api/xp/config', request => service.xp.configuration(request.actor));
+  app.get('/api/xp/rules', () => service.xp.current());
+  app.get('/api/xp/me', request => service.xp.summary(request.actor.id));
+  app.get('/api/xp/history', request => service.xp.history(request.actor.id, z.object({ page: z.coerce.number().int().min(1).max(100).default(1) }).parse(request.query).page));
+  app.get('/api/xp/leaderboard', request => {
+    const { period, page } = z.object({ period: z.enum(['weekly','monthly','all_time']).default('weekly'), page: z.coerce.number().int().min(1).max(100).default(1) }).parse(request.query);
+    return service.xp.leaderboard(period, page);
+  });
+  app.post('/api/xp/drafts', request => service.xp.draft(request.actor, request.body));
+  app.post('/api/xp/:id/approve', request => service.xp.approve(request.actor, paramId(request)));
+  app.post('/api/xp/:id/publish', request => {
+    const { expectedVersion } = z.object({ expectedVersion: z.number().int().positive(), confirm: z.literal(true) }).strict().parse(request.body);
+    return service.xp.publish(request.actor, paramId(request), expectedVersion);
+  });
+  async function checkXpTarget(actor: Parameters<typeof service.xp.requireManager>[0], body: unknown) {
+    service.xp.requireManager(actor);
+    const { userId } = z.object({ userId: z.string().regex(/^\d{17,20}$/) }).parse(body);
+    if (service.transport instanceof DiscordTransport) {
+      const { Routes } = await import('discord.js');
+      let member: { user?: { bot?: boolean } };
+      try { member = await service.transport.rest.get(Routes.guildMember(env.DISCORD_GUILD_ID!, userId)) as typeof member; }
+      catch { throw new AppError(400, 'XP_MEMBER_UNAVAILABLE'); }
+      if (member.user?.bot) throw new AppError(400, 'XP_BOT_NOT_ELIGIBLE');
+    }
+  }
+  app.post('/api/xp/adjustments', async request => { await checkXpTarget(request.actor, request.body); return service.xp.adjust(request.actor, request.body); });
+  app.post('/api/xp/contributions', async request => { await checkXpTarget(request.actor, request.body); return service.xp.reviewed(request.actor, request.body); });
   app.get('/api/discord/audit', request => { service.require(request.actor, 'config'); return service.transport.auditGuild(); });
   // Local simulator exercises the same service as the real Gateway. Never available in Discord mode.
   app.post('/api/mock/:action', async request => {

@@ -6,6 +6,16 @@ export type Values = Record<string, string | number>;
 export const languageStorageKey = 'evomeme.console.language';
 const english: Record<string, string> = {
   'Console title': 'EvoMeme Community Console',
+  "xp.event.first_message": "First Message",
+  "xp.event.chat": "Chat",
+  "xp.event.official_discussion": "Official Discussion",
+  "xp.event.creation": "Creation",
+  "xp.event.confirmed_issue": "Confirmed Issue",
+  "xp.event.featured": "Featured",
+  "xp.event.event": "Event",
+  "xp.event.boost_first": "Boost First",
+  "xp.event.boost_30d": "Boost 30D",
+
   'feature.welcome': 'welcome', 'feature.tickets': 'tickets', 'feature.messaging': 'messaging',
   'feature.web': 'web', 'feature.ios': 'ios', 'feature.android': 'android',
   'link.intro': 'INTRO', 'link.web': 'WEB', 'link.ios': 'IOS', 'link.android': 'ANDROID',
@@ -26,6 +36,23 @@ export function translate(locale: Locale, key: string, values: Values = {}) {
 }
 
 const errorCopy: Record<string, string> = {
+  "XP_DISABLED": "积分计分已关闭，请先审核并发布启用规则。",
+  "XP_NOT_INITIALIZED": "积分配置尚未初始化。",
+  "XP_DRAFT_NOT_FOUND": "该积分草稿不存在或已审核。",
+  "XP_CONFIG_CHANGED": "已发布的积分规则发生变化，请刷新后重试。",
+  "XP_APPROVAL_REQUIRED": "请先审核通过该积分规则。",
+  "XP_INSUFFICIENT_BALANCE": "扣分不能超过当前积分余额。",
+  "XP_IDEMPOTENCY_CONFLICT": "这个请求标识已用于其他调整，请核查之前的流水。",
+  "XP_MEMBER_UNAVAILABLE": "无法验证目标成员是否属于当前服务器。",
+  "XP_BOT_NOT_ELIGIBLE": "机器人账号不参与积分奖励。",
+  "DUPLICATE_EVENT": "该来源已发过积分，不会重复发放。",
+  "DAILY_CAP": "该成员已达到此规则的每日奖励上限。",
+  "COOLDOWN": "当前规则仍在冷却期。",
+  "ALREADY_REWARDED": "该成员已领取过这项一次性奖励。",
+  "EVENT_OUTSIDE_RULE_VERSION": "事件发生在当前规则生效前，不会追溯发放。",
+  "RULE_OUTSIDE_WINDOW": "当前事件不在规则有效期内。",
+  "CHANNEL_NOT_ELIGIBLE": "该频道不属于当前规则的计分范围。",
+
   ORIGIN_REJECTED: '请求来源未获允许，请检查浏览器地址与后台 PUBLIC_ORIGIN 配置。',
   CSRF_REJECTED: '安全校验失败，请刷新页面后重试。',
   FORBIDDEN: '当前角色没有此操作权限。',

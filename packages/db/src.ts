@@ -1,6 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import pg from 'pg';
-import { mkdir, readFile, open, unlink, rmdir } from 'node:fs/promises';
+import { mkdir, readFile, readdir, open, unlink, rmdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -76,9 +76,13 @@ export async function openDatabase(url?: string, dir = '.data/postgres'): Promis
   };
 }
 export async function migrate(db: Database) {
-  const sql = await readFile(new URL('./migrations/001_initial.sql', import.meta.url), 'utf8');
+  const directory = new URL('./migrations/', import.meta.url);
+  const files = (await readdir(directory)).filter(file => /^\d+_.*\.sql$/.test(file)).sort();
   await db.transaction(async tx => {
     // pg drivers and PGlite both accept individual statements with bind-free queries.
-    for (const statement of sql.split(';').map(s => s.trim()).filter(Boolean)) await tx.query(statement);
+    for (const file of files) {
+      const sql = await readFile(new URL(file, directory), 'utf8');
+      for (const statement of sql.split(';').map(s => s.trim()).filter(Boolean)) await tx.query(statement);
+    }
   });
 }

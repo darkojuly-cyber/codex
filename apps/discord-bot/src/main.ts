@@ -8,6 +8,8 @@ import { AppError, ctas } from '../../../packages/core/src/config.js';
 import { readEnv } from '../../../packages/core/src/env.js';
 import { showWelcome, providerErrorDetails } from './welcome.js';
 import { automaticWelcome } from './automatic-welcome.js';
+import { showPoints } from './points.js';
+import { DiscordTransport } from '../../../packages/core/src/transport.js';
 
 const preflight = readEnv();
 if (preflight.APP_MODE !== 'discord') throw new Error('Use the local Console simulator in mock mode. Gateway requires APP_MODE=discord.');
@@ -16,6 +18,7 @@ const { env, service, db } = await runtime();
 const startedAt = new Date();
 const intents = [GatewayIntentBits.Guilds];
 if (env.GUILD_MEMBERS_INTENT === 'true') intents.push(GatewayIntentBits.GuildMembers);
+if (env.MESSAGE_CONTENT_INTENT === 'true') intents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
 const client = new Client({ intents });
 const noMentions = { parse: [] as never[], users: [], roles: [], repliedUser: false };
 
@@ -45,11 +48,13 @@ async function ticketModal(interaction: ChatInputCommandInteraction | ButtonInte
 async function handle(interaction: Interaction) {
   if (interaction.guildId !== env.DISCORD_GUILD_ID) return;
   if (interaction.isChatInputCommand()) {
+    if (['points', 'rank', 'leaderboard'].includes(interaction.commandName)) return showPoints(interaction, service.xp);
     if (interaction.commandName === 'idea') return showIdea(interaction);
     if (interaction.commandName === 'welcome') return showWelcome(interaction, async () => (await service.current()).body);
     if (interaction.commandName === 'ticket') return ticketModal(interaction);
   }
   if (interaction.isButton()) {
+    if (interaction.customId === 'xp:rules') return showPoints(interaction, service.xp);
     if (interaction.customId === 'idea:another') return showIdea(interaction);
     if (interaction.customId === 'ticket:new') return ticketModal(interaction);
     if (interaction.customId === 'links:current') {
@@ -98,6 +103,20 @@ function welcomeFailed(error: unknown) {
 }
 client.on('guildMemberAdd', member => { void autoWelcome.joined(member).catch(welcomeFailed); });
 client.on('guildMemberUpdate', (oldMember, member) => { void autoWelcome.updated(oldMember, member).catch(welcomeFailed); });
+client.on('messageCreate', message => {
+  if (env.MESSAGE_CONTENT_INTENT !== 'true' || message.guildId !== env.DISCORD_GUILD_ID || message.author.bot || message.webhookId || message.system) return;
+  void service.xp.message({ user: message.author.id, messageId: message.id, channelId: message.channelId, content: message.content, occurredAt: message.createdAt, bot: false })
+    .catch(error => console.error(JSON.stringify({ event: 'xp.message_failed', ...providerErrorDetails(error) })));
+});
+client.on('guildMemberUpdate', (oldMember, member) => {
+  if (member.guild.id !== env.DISCORD_GUILD_ID || member.user.bot || oldMember.premiumSinceTimestamp === member.premiumSinceTimestamp) return;
+  void service.xp.observeBoost(member.id, member.premiumSince, !oldMember.premiumSinceTimestamp && !!member.premiumSinceTimestamp)
+    .then(() => service.xp.checkBoosts(fetchBoost))
+    .catch(error => console.error(JSON.stringify({ event: 'xp.boost_failed', ...providerErrorDetails(error) })));
+});
+async function fetchBoost(user: string) {
+  return service.transport instanceof DiscordTransport ? service.transport.boostSince(user) : null;
+}
 client.once('clientReady', () => console.log(JSON.stringify({ event: 'bot.ready', mode: 'DISCORD', membersIntent: env.GUILD_MEMBERS_INTENT, warning: env.GUILD_MEMBERS_INTENT !== 'true' ? 'Automatic welcome unavailable; use /welcome' : undefined })));
 client.on('error', () => console.error('Discord Gateway error'));
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { client.destroy(); void db.close(); });

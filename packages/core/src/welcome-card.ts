@@ -34,6 +34,7 @@ export function welcomeCard(body: string, appearance: WelcomeAppearance = {}) {
       { type: ComponentType.Button, style: ButtonStyle.Primary, label: 'Surprise Me!', emoji: { name: '🎲' }, custom_id: 'idea:another' },
       { type: ComponentType.Button, style: ButtonStyle.Secondary, label: 'Explore EvoMeme', emoji: { name: '🪄' }, custom_id: 'links:current' },
       { type: ComponentType.Button, style: ButtonStyle.Secondary, label: 'Get Support', emoji: { name: '🎫' }, custom_id: 'ticket:new' },
+      { type: ComponentType.Button, style: ButtonStyle.Secondary, label: 'XP Rules', emoji: { name: '✨' }, custom_id: 'xp:rules' },
     ],
   };
   return { embeds: [embed], components: [row] };

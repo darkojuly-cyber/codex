@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { defaults, ctas, type Config, type Role } from '../../../packages/core/src/config';
 import './style.css';
@@ -22,6 +22,7 @@ function App() {
   const [data, setData] = useState<Row>({});
   const [rows, setRows] = useState<Row[]>([]);
   const [config, setConfig] = useState<Config>(structuredClone(defaults));
+  const configLoaded = useRef(false);
   const [current, setCurrent] = useState<Revision | null>(null);
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [detail, setDetail] = useState<Row | null>(null);
@@ -51,7 +52,7 @@ function App() {
     return result as T;
   }
   useEffect(() => { void fetch('/api/health').then(r => r.json()).then(r => setMode(r.mode)).catch(() => setError('API unavailable. Start npm run dev.')); void fetch('/api/session').then(async r => { if (r.ok) setSession(await r.json()); }).catch(() => undefined); }, []);
-  async function load() {
+  async function load(resetConfig = false) {
     if (!session) return;
     setError(''); setLoading(true); setRows([]); setDetail(null);
     try {
@@ -62,12 +63,17 @@ function App() {
       if (tab === 'Audit') setRows(await api<Row[]>('/audit'));
       if (manager && ['Lifecycle', 'Settings', 'Mimo & Ideas'].includes(tab)) {
         const result = await api<{ current: Revision; revisions: Revision[] }>('/config');
-        setCurrent(result.current); setConfig(result.current.body); setRevisions(result.revisions);
+        setCurrent(result.current); setRevisions(result.revisions);
+        if (resetConfig || !configLoaded.current) {
+          setConfig(result.current.body);
+          configLoaded.current = true;
+        }
       }
       if (tab === 'Settings') setData(await api('/health'));
     } catch (e) { setError((e as Error).message); }
     finally { setLoading(false); }
   }
+  useEffect(() => { configLoaded.current = false; }, [session]);
   useEffect(() => { void load(); }, [tab, session]); // eslint-disable-line react-hooks/exhaustive-deps
   async function run(fn: () => Promise<void>) {
     setBusy(true); setError(''); setNotice('');
@@ -76,7 +82,7 @@ function App() {
   async function draft() { await api('/config/drafts', 'POST', config); await load(); setNotice('Draft saved. Preview its configuration, then explicitly publish.'); }
   async function publish(revision: Revision) {
     if (!window.confirm(t('Publish configuration v{version}? Enabled features will apply to new interactions and pending messages.', { version: revision.version }))) return;
-    await api(`/config/${revision.id}/publish`, 'POST', { expectedVersion: current?.version, confirm: true }); await load(); setNotice('Configuration published.');
+    await api(`/config/${revision.id}/publish`, 'POST', { expectedVersion: current?.version, confirm: true }); await load(true); setNotice('Configuration published.');
   }
   function field(key: keyof Config['channels'], label: string) {
     return <label>{t(label)}<input value={key === 'publish' ? config.channels.publish.join(',') : config.channels[key]} onChange={e => setConfig({ ...config, channels: { ...config.channels, [key]: key === 'publish' ? e.target.value.split(',').map(s => s.trim()).filter(Boolean) : e.target.value } })}/></label>;

@@ -22,11 +22,11 @@ export function welcomeCard(body: string, appearance: WelcomeAppearance = {}) {
     description: body,
     ...(avatar ? { thumbnail: { url: avatar } } : {}),
     fields: [
-      { name: '🎲 A spark of chaos', value: 'Find a weird idea. Make it playable.', inline: true },
-      { name: '🪄 Your next adventure', value: 'Create, remix, and meet your people.', inline: true },
-      { name: 'Make yourself at home', value: 'Pick a button below to get started. Need a hand? Open a private ticket.' },
+      { name: '🎲 Surprise Me!', value: 'Start with a little chaos.', inline: true },
+      { name: '🪄 Explore EvoMeme', value: 'See what you can make.', inline: true },
+      { name: '🎫 Get Support', value: 'We’re here if you get stuck.', inline: true },
     ],
-    footer: { text: 'Anything can be a game.  ✦  EvoMeme' },
+    footer: { text: 'Anything can be a game.' },
   };
   const row: APIActionRowComponent<APIButtonComponent> = {
     type: ComponentType.ActionRow,

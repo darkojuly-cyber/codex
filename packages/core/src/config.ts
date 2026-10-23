@@ -26,7 +26,7 @@ export const configSchema = z.object({
 export type Config = z.infer<typeof configSchema>;
 export const defaults: Config = {
   phase: 'PRELAUNCH', timezone: 'Asia/Singapore',
-  persona: { name: 'Mimo', welcome: "Hey {user}! What if we made this a game? Let's make something weird together.", promptTemplate: 'Create a playful, accessible game with clear mechanics and a shareable result.' },
+  persona: { name: 'Mimo', welcome: 'Hey {user}, glad you found us 👾\n\nGot a weird idea? You’ll fit right in.\nMake a game, remix something unexpected, or just hang out and see what everyone’s cooking.\n\nNo idea where to start? Let Mimo surprise you. 🎲', promptTemplate: 'Create a playful, accessible game with clear mechanics and a shareable result.' },
   links: { intro: '', web: '', ios: '', android: '' },
   channels: { welcome: '', community: '', ticketCategory: '', publish: [] },
   enabled: { welcome: false, tickets: false, messaging: false, web: false, ios: false, android: false },

@@ -1,5 +1,7 @@
 # 管理员操作指南与 API
 
+登录页与后台页头可通过 **语言 / Language** 切换简体中文或英文，偏好在当前浏览器保存。下文英文页名的中文对应为：Overview＝概览，Tickets＝工单，Messaging＝消息中心，Mimo & Ideas＝Mimo 与灵感机，Lifecycle＝运营阶段，Settings＝设置，Audit＝审计日志。配置内容、原始 JSON 和 Discord 用户文案不会自动翻译。
+
 ## 工作流
 
 ### 本地 Mock

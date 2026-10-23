@@ -1,0 +1,92 @@
+import { useEffect, useState } from 'react';
+import { zhCN } from './zh-CN';
+
+export type Locale = 'en' | 'zh-CN';
+export type Values = Record<string, string | number>;
+export const languageStorageKey = 'evomeme.console.language';
+const english: Record<string, string> = {
+  'Console title': 'EvoMeme Community Console',
+  'feature.welcome': 'welcome', 'feature.tickets': 'tickets', 'feature.messaging': 'messaging',
+  'feature.web': 'web', 'feature.ios': 'ios', 'feature.android': 'android',
+  'link.intro': 'INTRO', 'link.web': 'WEB', 'link.ios': 'IOS', 'link.android': 'ANDROID',
+};
+
+export function resolveLocale(saved: unknown, languages: readonly string[]): Locale {
+  if (saved === 'en' || saved === 'zh-CN') return saved;
+  // Respect the browser's primary supported language, then English as fallback.
+  for (const language of languages) {
+    if (/^zh(?:-|$)/i.test(language)) return 'zh-CN';
+    if (/^en(?:-|$)/i.test(language)) return 'en';
+  }
+  return 'en';
+}
+export function translate(locale: Locale, key: string, values: Values = {}) {
+  const message = (locale === 'zh-CN' ? zhCN[key] : english[key]) ?? key;
+  return message.replace(/\{(\w+)\}/g, (match, name: string) => Object.hasOwn(values, name) ? String(values[name]) : match);
+}
+
+const errorCopy: Record<string, string> = {
+  ORIGIN_REJECTED: '请求来源未获允许，请检查浏览器地址与后台 PUBLIC_ORIGIN 配置。',
+  CSRF_REJECTED: '安全校验失败，请刷新页面后重试。',
+  FORBIDDEN: '当前角色没有此操作权限。',
+  LOGIN_REQUIRED: '请先登录。', SESSION_EXPIRED: '登录已过期，请重新登录。',
+  CONFIG_CHANGED_RELOAD: '配置已被其他操作更新，请刷新后重试。',
+  VALIDATION_ERROR: '输入校验失败，请检查以下字段。',
+  CHANNEL_NOT_APPROVED: '该频道尚未获准发布，请先绑定并发布配置。',
+  CHANNEL_OUTSIDE_GUILD: '频道不属于当前绑定的公会。',
+  DISCORD_WRITES_DISABLED: '真实 Discord 写入尚未启用。',
+  TICKET_BINDINGS_REQUIRED: '请先配置已批准的工单分类及员工角色。',
+  INVALID_TICKET_CATEGORY: '工单分类无效，请核对公会与分类 ID。',
+  CONFIG_NOT_INITIALIZED: '配置尚未初始化。', DRAFT_NOT_FOUND: '未找到该草稿。',
+  REVISION_NOT_FOUND: '未找到该配置版本。', NO_APPROVED_SEEDS: '暂无已审核并启用的灵感种子。',
+  IDEA_HOURLY_LIMIT: '已达到每小时灵感抽取上限。', PROMPT_DAILY_LIMIT: '已达到今日提示词生成上限。',
+  SEED_NOT_AVAILABLE: '该灵感种子当前不可用。', TICKET_NOT_FOUND: '工单不存在或你没有访问权限。',
+  TICKETS_PENDING_APPROVAL: '工单功能尚待批准或未配置分类。', ACTIVE_TICKET_LIMIT: '已达到活跃工单上限。',
+  TICKET_NOT_ACTIVE: '当前工单状态不允许此操作。', CANNOT_REASSIGN: '你没有重新分配该工单的权限。',
+  REOPEN_WINDOW_EXPIRED: '工单已超出允许重新打开的时限。', SCHEDULE_IN_PAST: '排期时间不能早于当前时间。',
+  JOB_NOT_DRAFT: '该消息已不处于草稿状态，请刷新。', JOB_CANNOT_CANCEL: '当前任务状态无法取消。',
+  GUILD_MEMBERSHIP_UNAVAILABLE: '暂时无法验证公会成员身份，请稍后重试。', STAFF_ROLE_REQUIRED: '需要已授权的员工角色。',
+  MOCK_LOCALHOST_ONLY: '模拟模式仅允许本机访问。', NOT_FOUND: '未找到请求的内容。',
+  OAUTH_NOT_CONFIGURED: '尚未配置 Discord 员工登录。', OAUTH_STATE_REJECTED: '登录安全状态不匹配，请重新发起登录。',
+  OAUTH_STATE_EXPIRED: '登录授权已过期，请重新登录。', OAUTH_EXCHANGE_FAILED: 'Discord 授权交换失败，请重新登录。',
+  OAUTH_IDENTITY_FAILED: '无法获取 Discord 身份，请重新登录。', RATE_LIMITED: '操作过于频繁，请稍后重试。',
+  INTERNAL_ERROR: '后台处理失败，请稍后重试或联系管理员。', BAD_REQUEST: '请求格式不正确。',
+  PRIVATE_CHANNEL_PROVISION_FAILED: '私密频道创建失败，请联系管理员。',
+  PRIVATE_CHANNEL_CLEANUP_REQUIRED: '私密频道创建异常，需要管理员核查并清理。',
+};
+export function translateError(locale: Locale, message: string) {
+  if (locale === 'en') return message;
+  const code = message.split(':', 1)[0];
+  return errorCopy[code] ? `${errorCopy[code]} (${code})${message.slice(code.length)}` : translate(locale, message);
+}
+export function translateNotice(locale: Locale, message: string) {
+  const ticket = /^Created private mock ticket #(\d+)\. Open Tickets to review\.$/.exec(message);
+  return ticket ? translate(locale, 'Created private mock ticket #{number}. Open Tickets to review.', { number: ticket[1] }) : translate(locale, message);
+}
+export function roleName(locale: Locale, role: string) {
+  return locale === 'en' ? role.replaceAll('_', ' ') : translate(locale, role);
+}
+export function formatDate(locale: Locale, value: unknown) {
+  if (!value) return '—';
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString(locale === 'zh-CN' ? 'zh-CN' : 'en-US');
+}
+function browserLocale() {
+  let saved: unknown;
+  try { saved = window.localStorage.getItem(languageStorageKey); } catch { /* Storage can be unavailable in private browsing. */ }
+  return resolveLocale(saved, window.navigator.languages ?? [window.navigator.language]);
+}
+export function useConsoleLanguage() {
+  const [locale, setLocale] = useState<Locale>(browserLocale);
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    document.title = translate(locale, 'Console title');
+    try { window.localStorage.setItem(languageStorageKey, locale); } catch { /* Keep switching usable without persistence. */ }
+  }, [locale]);
+  return { locale, setLocale, t: (key: string, values?: Values) => translate(locale, key, values) };
+}
+export function LanguageSwitch({ locale, onChange }: { locale: Locale; onChange: (value: Locale) => void }) {
+  return <label className="language-switch"><span>语言 / Language</span><select aria-label="语言 / Language" value={locale} onChange={event => { if (event.target.value === 'en' || event.target.value === 'zh-CN') onChange(event.target.value); }}>
+    <option value="zh-CN">简体中文</option><option value="en">English</option>
+  </select></label>;
+}

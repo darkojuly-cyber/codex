@@ -89,3 +89,5 @@ $env:MESSAGE_CONTENT_INTENT = "true"
 这些测试使用本地模拟 Discord 响应，不代表已在你的 Neon 数据库迁移或真实 Guild 发奖。真实 Gateway、平台 intents 与网络路径需要更新到本机后再验收。未重新构建/发布 Docker 镜像。
 
 验证结果（2026-10-23）：`npm run lint`、`npm run build` 通过；PGlite 与 PostgreSQL 各 62 项测试通过，7 项浏览器流程通过。独立数据库的实际 HTTP 发奖验证输出：`{"database":"PostgreSQL","ruleVersion":2,"awardedXp":15,"ledgerEntries":1,"replay":"DUPLICATE_EVENT","result":"PASS"}`。截图为本地 Mock 测试数据：[桌面](screenshots/xp-desktop.png)、[中文移动端](screenshots/xp-mobile.png)。
+
+连接恢复验证：重启独立 PostgreSQL 后，同一 Node 进程收到脱敏的空闲连接错误提示，并在下一次查询自动重连，输出 `POOL_RECOVERY_PASS`。连接池设置 15 秒连接超时，不输出原始连接对象或凭证。

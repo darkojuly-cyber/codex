@@ -13,7 +13,10 @@ export interface Database extends Queryable {
 }
 export async function openDatabase(url?: string, dir = '.data/postgres'): Promise<Database> {
   if (url) {
-    const pool = new pg.Pool({ connectionString: url });
+    const pool = new pg.Pool({ connectionString: url, connectionTimeoutMillis: 15000 });
+    // pg removes failed idle clients and reconnects on the next query. Never let
+    // an unhandled pool event crash the process or dump connection credentials.
+    pool.on('error', () => { console.error('PostgreSQL idle connection lost; subsequent queries will reconnect.'); });
     const wrap = (client: pg.Pool | pg.PoolClient): Queryable => ({
       query: async <T extends Record<string, unknown>>(sql: string, params?: unknown[]) => (await client.query(sql, params)).rows as T[],
     });

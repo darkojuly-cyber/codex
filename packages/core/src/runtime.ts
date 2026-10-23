@@ -8,7 +8,12 @@ export async function runtime() {
   const env = readEnv();
   const db = await openDatabase(env.DATABASE_URL, resolve(env.DATA_DIR, 'postgres'));
   try {
-    await migrate(db);
+    if (env.DATABASE_URL && env.DATABASE_URL_UNPOOLED && env.DATABASE_URL_UNPOOLED !== env.DATABASE_URL) {
+      const migrationDb = await openDatabase(env.DATABASE_URL_UNPOOLED);
+      try { await migrate(migrationDb); } finally { await migrationDb.close(); }
+    } else {
+      await migrate(db);
+    }
     await db.transaction(async tx => {
       await tx.query('LOCK TABLE environment_binding IN EXCLUSIVE MODE');
       const identity = env.APP_MODE === 'mock' ? 'LOCAL_MOCK' : `DISCORD:${env.DISCORD_GUILD_ID}`;

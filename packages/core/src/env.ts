@@ -1,8 +1,9 @@
-import 'dotenv/config';
+import { loadEnvironment } from './load-env.js';
 import { z } from 'zod';
+loadEnvironment();
 const schema = z.object({
   APP_MODE: z.enum(['mock', 'discord']).default('mock'),
-  DATABASE_URL: z.string().optional(), DATA_DIR: z.string().default('.data'),
+  DATABASE_URL: z.string().optional(), DATABASE_URL_UNPOOLED: z.string().optional(), DATA_DIR: z.string().default('.data'),
   HOST: z.string().default('127.0.0.1'), PORT: z.coerce.number().default(3000),
   PUBLIC_ORIGIN: z.string().url().default('http://localhost:3000'),
   DISCORD_TOKEN: z.string().optional(), DISCORD_GUILD_ID: z.string().optional(),

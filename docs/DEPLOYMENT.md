@@ -71,6 +71,8 @@ Console 登录后：Settings 绑定已核对的 ID → 保存草稿 → Lifecycl
 
 自动欢迎需要 Developer Portal 开启 **Server Members Intent**，并设置 `GUILD_MEMBERS_INTENT=true`。Console 设置欢迎频道并启用 welcome，保存草稿后发布才会生效。开启原生 Onboarding 的服务器在完成 Onboarding 且通过成员筛选后向欢迎频道发布按钮卡片；未开启 Onboarding 的服务器在新成员入群且通过成员筛选后发布。数据库按成员去重，不会因其他成员信息更新重复欢迎。即使成员在 Bot 启动前入群，启动后收到其完成 Onboarding/成员筛选的实时事件也会处理；不会在启动时扫描或补发历史成员，停机期间已完成的成员可用 `/welcome` 补看。欢迎发送结果未知时标为 `UNKNOWN`，不自动再发。
 
+自动欢迎与 `/welcome` 共用紫色 Discord Embed 卡片，包含服务器图标、成员头像、后台配置的欢迎文案、引导分区和三个按钮。头像/图标直接使用 Discord CDN，不额外上传或保存；原有按钮 custom ID 保持不变。需要目标频道的 Embed Links 权限。外观结构示意见 [welcome-card-preview.png](screenshots/welcome-card-preview.png)，示意中的头像为占位，实际布局以 Discord 客户端为准。后台语言选择不会自动翻译频道内的卡片文案。
+
 ## 6. 容器
 
 `Dockerfile` 为所有服务提供统一镜像。默认启动 API，命令覆盖可选 `npm run bot` / `npm run worker`。构建包含 TS runner，运行依赖目前未做最小镜像裁剪。外部 PostgreSQL、反向代理 TLS、秘密注入、备份和监控由部署平台提供。必须使用真实模式，镜像不会自动配置 Discord 或部署服务。

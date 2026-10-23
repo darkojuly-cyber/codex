@@ -1,10 +1,11 @@
 import { GuildMemberFlags, type GuildMember, type PartialGuildMember } from 'discord.js';
+import type { WelcomeAppearance } from '../../../packages/core/src/welcome-card.js';
 
 type Member = GuildMember | PartialGuildMember;
 export function automaticWelcome(options: {
   guildId: string;
   startedAt: Date;
-  welcome: (user: string, joinedAt: Date, eligible: boolean, cutoff: Date) => Promise<boolean>;
+  welcome: (user: string, joinedAt: Date, eligible: boolean, cutoff: Date, appearance: WelcomeAppearance) => Promise<boolean>;
 }) {
   function eligible(member: Member) {
     return member.guild.id === options.guildId && !member.user.bot && !!member.joinedAt && member.pending === false;
@@ -15,7 +16,10 @@ export function automaticWelcome(options: {
     // Without native onboarding, joining (after membership screening) is enough.
     // Do not assume onboarding is disabled when Discord's lookup fails.
     if (!completed && (await member.guild.fetchOnboarding()).enabled) return;
-    await options.welcome(member.id, member.joinedAt!, true, cutoff);
+    await options.welcome(member.id, member.joinedAt!, true, cutoff, {
+      avatarUrl: member.user.displayAvatarURL({ size: 256, extension: 'png' }),
+      guildIconUrl: member.guild.iconURL({ size: 128, extension: 'png' }) ?? undefined,
+    });
   }
   return {
     async joined(member: GuildMember) {

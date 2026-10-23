@@ -1,16 +1,15 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, type ChatInputCommandInteraction, type ButtonInteraction } from 'discord.js';
+import { MessageFlags, type ChatInputCommandInteraction, type ButtonInteraction } from 'discord.js';
 import type { Config } from '../../../packages/core/src/config.js';
+import { welcomeCard } from '../../../packages/core/src/welcome-card.js';
 
 export async function showWelcome(interaction: ChatInputCommandInteraction | ButtonInteraction, loadConfig: () => Promise<Config>) {
   // Acknowledge before database I/O: Discord expires initial responses after 3s.
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const c = await loadConfig();
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId('idea:another').setLabel('Surprise Me!').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('links:current').setLabel('Explore EvoMeme').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('ticket:new').setLabel('Submit a Ticket').setStyle(ButtonStyle.Secondary),
-  );
-  await interaction.editReply({ content: c.persona.welcome.replaceAll('{user}', interaction.user.username), components: [row],
+  await interaction.editReply({ ...welcomeCard(c.persona.welcome.replaceAll('{user}', interaction.user.username), {
+    avatarUrl: interaction.user.displayAvatarURL({ size: 256, extension: 'png' }),
+    guildIconUrl: interaction.guild?.iconURL({ size: 128, extension: 'png' }) ?? undefined,
+  }),
     allowedMentions: { parse: [], users: [], roles: [], repliedUser: false } });
 }
 

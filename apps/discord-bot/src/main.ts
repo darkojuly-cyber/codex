@@ -92,7 +92,7 @@ client.on('interactionCreate', interaction => {
   });
 });
 const autoWelcome = automaticWelcome({ guildId: env.DISCORD_GUILD_ID!, startedAt,
-  welcome: (user, joinedAt, eligible, cutoff) => service.welcome(user, joinedAt, eligible, cutoff) });
+  welcome: (user, joinedAt, eligible, cutoff, appearance) => service.welcome(user, joinedAt, eligible, cutoff, appearance) });
 function welcomeFailed(error: unknown) {
   console.error(JSON.stringify({ event: 'welcome.failed', ...providerErrorDetails(error) }));
 }

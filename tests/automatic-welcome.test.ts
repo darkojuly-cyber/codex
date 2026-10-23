@@ -6,9 +6,9 @@ const startedAt = new Date('2026-10-23T00:00:00Z');
 function member(options: { completed?: boolean; pending?: boolean; onboarding?: boolean; joinedAt?: Date; bot?: boolean; guildId?: string } = {}) {
   return {
     id: 'alice', joinedAt: options.joinedAt ?? new Date(startedAt.getTime() + 1000), pending: options.pending ?? false,
-    user: { bot: options.bot ?? false },
+    user: { bot: options.bot ?? false, displayAvatarURL: () => 'https://cdn.discordapp.com/embed/avatars/0.png' },
     flags: { has: (flag: GuildMemberFlags) => flag === GuildMemberFlags.CompletedOnboarding && !!options.completed },
-    guild: { id: options.guildId ?? 'test', fetchOnboarding: vi.fn(async () => ({ enabled: options.onboarding ?? true })) },
+    guild: { id: options.guildId ?? 'test', iconURL: () => null, fetchOnboarding: vi.fn(async () => ({ enabled: options.onboarding ?? true })) },
   } as unknown as GuildMember;
 }
 function setup() {
@@ -21,14 +21,14 @@ it('posts on join when onboarding is disabled, but waits when it is enabled', as
   await handler.joined(member({ onboarding: true }));
   expect(welcome).not.toHaveBeenCalled();
   await handler.joined(member({ onboarding: false }));
-  expect(welcome).toHaveBeenCalledWith('alice', expect.any(Date), true, startedAt);
+  expect(welcome).toHaveBeenCalledWith('alice', expect.any(Date), true, startedAt, expect.objectContaining({ avatarUrl: expect.any(String) }));
 });
 
 it('posts on onboarding completion even when the member joined before the bot restarted', async () => {
   const { welcome, handler } = setup();
   const joinedAt = new Date(startedAt.getTime() - 10000);
   await handler.updated(member({ joinedAt }), member({ joinedAt, completed: true }));
-  expect(welcome).toHaveBeenCalledWith('alice', joinedAt, true, new Date(0));
+  expect(welcome).toHaveBeenCalledWith('alice', joinedAt, true, new Date(0), expect.any(Object));
   welcome.mockClear();
   await handler.updated(member({ completed: true }), member({ completed: true }));
   expect(welcome).not.toHaveBeenCalled();

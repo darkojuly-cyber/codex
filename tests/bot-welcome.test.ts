@@ -9,7 +9,7 @@ it('acknowledges welcome before waiting for a slow database and edits the privat
   const events: string[] = [];
   const deferReply = vi.fn(async () => { events.push('acknowledged'); });
   const editReply = vi.fn(async () => {});
-  const interaction = { user: { username: 'Alice' }, deferReply, editReply } as unknown as ChatInputCommandInteraction;
+  const interaction = { user: { username: 'Alice', displayAvatarURL: () => 'https://cdn.discordapp.com/embed/avatars/0.png' }, deferReply, editReply } as unknown as ChatInputCommandInteraction;
   const loadConfig = vi.fn(() => { events.push('database'); return slowDatabase; });
   const response = showWelcome(interaction, loadConfig);
   await Promise.resolve();
@@ -20,7 +20,7 @@ it('acknowledges welcome before waiting for a slow database and edits the privat
   await response;
   expect(editReply.mock.calls).toHaveLength(1);
   expect(editReply).toHaveBeenCalledWith(expect.objectContaining({
-    content: defaults.persona.welcome.replaceAll('{user}', 'Alice'),
+    embeds: [expect.objectContaining({ description: defaults.persona.welcome.replaceAll('{user}', 'Alice') })],
     allowedMentions: { parse: [], users: [], roles: [], repliedUser: false },
   }));
 });

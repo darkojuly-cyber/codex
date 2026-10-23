@@ -3,12 +3,15 @@ import { randomUUID } from 'node:crypto';
 import { AppError } from './config.js';
 import type { Env } from './env.js';
 import { ids } from './env.js';
+import { welcomeCard, type WelcomeAppearance } from './welcome-card.js';
+
+type SendOptions = WelcomeAppearance & { welcomeCard: boolean; mentionUser: string };
 
 export class DeliveryError extends Error {
   constructor(public code: string, public kind: 'retry' | 'permanent' | 'ambiguous', public retryAfter = 5) { super(code); }
 }
 export interface Transport {
-  send(channelId: string, body: string, key: string, options?: { welcomeCard: boolean; mentionUser: string }): Promise<string>;
+  send(channelId: string, body: string, key: string, options?: SendOptions): Promise<string>;
   createTicket(userId: string, categoryId: string, seq: number): Promise<string>;
   deleteTicket(channelId: string): Promise<void>;
   auditGuild(): Promise<unknown>;
@@ -31,20 +34,16 @@ export class DiscordTransport implements Transport {
   readonly rest: REST;
   constructor(private env: Env) { this.rest = new REST({ version: '10', retries: 0, timeout: 15000 }).setToken(env.DISCORD_TOKEN!); }
   private writable() { if (this.env.DISCORD_WRITES_ENABLED !== 'true') throw new AppError(409, 'DISCORD_WRITES_DISABLED'); }
-  async send(channelId: string, body: string, key: string, options?: { welcomeCard: boolean; mentionUser: string }) {
+  async send(channelId: string, body: string, key: string, options?: SendOptions) {
     this.writable();
     if (!await this.channelBelongsToGuild(channelId)) throw new DeliveryError('CHANNEL_OUTSIDE_GUILD', 'permanent');
     // Stable nonce, enforced by Discord for recent duplicate messages. Longer ambiguous failures
     // require manual reconciliation rather than claiming exactly-once delivery across systems.
     const nonce = key.replace(/-/g, '').slice(0, 25);
     try {
-      const message = await this.rest.post(Routes.channelMessages(channelId), { body: { content: body,
+      const message = await this.rest.post(Routes.channelMessages(channelId), { body: { content: options?.welcomeCard ? `<@${options.mentionUser}>` : body,
         allowed_mentions: { parse: [], users: options?.mentionUser ? [options.mentionUser] : [], roles: [], replied_user: false }, nonce, enforce_nonce: true,
-        ...(options?.welcomeCard ? { components: [{ type: 1, components: [
-          { type: 2, style: 1, label: 'Surprise Me!', custom_id: 'idea:another' },
-          { type: 2, style: 2, label: 'Explore EvoMeme', custom_id: 'links:current' },
-          { type: 2, style: 2, label: 'Submit a Ticket', custom_id: 'ticket:new' },
-        ] }] } : {}),
+        ...(options?.welcomeCard ? welcomeCard(body, options) : {}),
       } }) as { id: string };
       return message.id;
     } catch (e) {

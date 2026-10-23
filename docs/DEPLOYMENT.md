@@ -69,7 +69,7 @@ npm run worker
 
 Console 登录后：Settings 绑定已核对的 ID → 保存草稿 → Lifecycle 检查完整草稿并发布。只有业务确认后才启用 welcome/tickets/messaging。配置只影响新交互；发送前 Worker 再核对 messaging 开关和频道白名单。旧 welcome 的自定义按钮实时查询当前配置，不静态嵌入过期产品 URL。
 
-自动欢迎只处理 **本次 Bot 进程启动后新加入** 且完成原生 Onboarding 的成员；不会在启动时扫描/补发历史成员。故停机期间入群或启动前入群、启动后才完成 Onboarding 的成员需要 `/welcome` 自助回退。本版未提供历史补查/补发功能。欢迎发送结果未知时标为 `UNKNOWN`，不自动再发。
+自动欢迎需要 Developer Portal 开启 **Server Members Intent**，并设置 `GUILD_MEMBERS_INTENT=true`。Console 设置欢迎频道并启用 welcome，保存草稿后发布才会生效。开启原生 Onboarding 的服务器在完成 Onboarding 且通过成员筛选后向欢迎频道发布按钮卡片；未开启 Onboarding 的服务器在新成员入群且通过成员筛选后发布。数据库按成员去重，不会因其他成员信息更新重复欢迎。即使成员在 Bot 启动前入群，启动后收到其完成 Onboarding/成员筛选的实时事件也会处理；不会在启动时扫描或补发历史成员，停机期间已完成的成员可用 `/welcome` 补看。欢迎发送结果未知时标为 `UNKNOWN`，不自动再发。
 
 ## 6. 容器
 

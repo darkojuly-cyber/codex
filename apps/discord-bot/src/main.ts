@@ -1,5 +1,5 @@
 import {
-  Client, GatewayIntentBits, GuildMemberFlags, MessageFlags, ActionRowBuilder,
+  Client, GatewayIntentBits, MessageFlags, ActionRowBuilder,
   ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle,
   type Interaction, type ChatInputCommandInteraction, type ButtonInteraction,
 } from 'discord.js';
@@ -7,6 +7,7 @@ import { runtime } from '../../../packages/core/src/runtime.js';
 import { AppError, ctas } from '../../../packages/core/src/config.js';
 import { readEnv } from '../../../packages/core/src/env.js';
 import { showWelcome, providerErrorDetails } from './welcome.js';
+import { automaticWelcome } from './automatic-welcome.js';
 
 const preflight = readEnv();
 if (preflight.APP_MODE !== 'discord') throw new Error('Use the local Console simulator in mock mode. Gateway requires APP_MODE=discord.');
@@ -90,11 +91,13 @@ client.on('interactionCreate', interaction => {
     } catch (reportError) { console.error(JSON.stringify({ event: 'interaction.report_failed', ...providerErrorDetails(reportError) })); }
   });
 });
-client.on('guildMemberUpdate', (_old, member) => {
-  if (member.guild.id !== env.DISCORD_GUILD_ID || member.user.bot || !member.joinedAt) return;
-  void service.welcome(member.id, member.joinedAt, member.flags.has(GuildMemberFlags.CompletedOnboarding), startedAt)
-    .catch(() => console.error('Welcome processing failed'));
-});
+const autoWelcome = automaticWelcome({ guildId: env.DISCORD_GUILD_ID!, startedAt,
+  welcome: (user, joinedAt, eligible, cutoff) => service.welcome(user, joinedAt, eligible, cutoff) });
+function welcomeFailed(error: unknown) {
+  console.error(JSON.stringify({ event: 'welcome.failed', ...providerErrorDetails(error) }));
+}
+client.on('guildMemberAdd', member => { void autoWelcome.joined(member).catch(welcomeFailed); });
+client.on('guildMemberUpdate', (oldMember, member) => { void autoWelcome.updated(oldMember, member).catch(welcomeFailed); });
 client.once('clientReady', () => console.log(JSON.stringify({ event: 'bot.ready', mode: 'DISCORD', membersIntent: env.GUILD_MEMBERS_INTENT, warning: env.GUILD_MEMBERS_INTENT !== 'true' ? 'Automatic welcome unavailable; use /welcome' : undefined })));
 client.on('error', () => console.error('Discord Gateway error'));
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { client.destroy(); void db.close(); });

@@ -182,8 +182,8 @@ export class CommunityService {
     const rows = await this.db.query("INSERT INTO member_state(user_id,joined_at,welcome_status) VALUES($1,$2,'SENDING') ON CONFLICT(user_id) DO NOTHING RETURNING user_id", [user, joinedAt]);
     if (!rows.length) return false;
     try {
-      // The body names only this member; allowed_mentions remains empty to avoid ping injection.
-      const id = await this.transport.send(c.channels.welcome, c.persona.welcome.replaceAll('{user}', `<@${user}>`) + '\nTry /idea, /ticket or /welcome to explore!', randomUUID(), { welcomeCard: true, mentionUser: user });
+      // Only the welcomed member may be mentioned; the card buttons are the primary entry points.
+      const id = await this.transport.send(c.channels.welcome, c.persona.welcome.replaceAll('{user}', `<@${user}>`), randomUUID(), { welcomeCard: true, mentionUser: user });
       await this.db.query("UPDATE member_state SET welcome_status='SENT',message_id=$2 WHERE user_id=$1", [user, id]);
       return true;
     } catch {

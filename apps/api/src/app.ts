@@ -51,9 +51,21 @@ export async function createApp(service: CommunityService, env: Env) {
     const { body } = await service.current();
     return { persona: body.persona, phase: body.phase, ctas: ctas(body), brand: 'PLACEHOLDER — official assets not provided' };
   });
+  app.get('/api/tickets/search', request => service.ticketSearch(request.actor, request.query));
+  app.post('/api/tickets/:id/provision-reviewed', request => service.reviewUncertainTicket(request.actor, paramId(request), request.body));
+  app.post('/api/tickets/:id/retry-sync', request => service.retryTicketSync(request.actor, paramId(request)));
+  app.post('/api/tickets/:id/reply', request => service.replyTicket(request.actor, paramId(request), request.body));
+  app.post('/api/tickets/:id/award', request => service.awardTicket(request.actor, paramId(request), request.body));
   app.get('/api/tickets', request => service.tickets(request.actor));
-  app.get('/api/tickets/:id', request => service.ticket(request.actor, paramId(request)));
-  app.patch('/api/tickets/:id', request => service.updateTicket(request.actor, paramId(request), request.body));
+  app.get('/api/tickets/:id', async request => {
+    const { page } = z.object({ page: z.coerce.number().int().min(1).max(100000).default(1) }).strict().parse(request.query);
+    const ticket = await service.ticket(request.actor, paramId(request), page);
+    return { ...ticket, discord_url: env.APP_MODE === 'discord' && ticket.private_channel_id ? `https://discord.com/channels/${env.DISCORD_GUILD_ID}/${ticket.private_channel_id}` : null };
+  });
+  app.patch('/api/tickets/:id', request => {
+    z.object({ expectedVersion: z.number().int().positive() }).passthrough().parse(request.body);
+    return service.updateTicket(request.actor, paramId(request), request.body);
+  });
   app.get('/api/seeds', request => { service.require(request.actor, 'config'); return service.seeds(); });
   app.post('/api/seeds', request => service.addSeed(request.actor, request.body));
   app.get('/api/messages', request => {
@@ -117,7 +129,10 @@ export async function createApp(service: CommunityService, env: Env) {
     const { action } = z.object({ action: z.enum(['idea', 'prompt', 'ticket', 'tick']) }).parse(request.params);
     if (action === 'idea') return service.idea(request.actor.id);
     if (action === 'prompt') return service.prompt(request.actor.id, z.object({ seedId: z.string().uuid() }).parse(request.body).seedId);
-    if (action === 'ticket') return service.createTicket(request.actor.id, z.object({ requestKey: z.string().min(5).max(100) }).parse(request.body).requestKey, z.object({ input: z.unknown() }).parse(request.body).input);
+    if (action === 'ticket') {
+      const data = z.object({ userId: z.string().regex(/^\d{17,20}$/).optional(), requestKey: z.string().min(5).max(100), input: z.unknown() }).parse(request.body);
+      return service.createTicket(data.userId ?? '100000000000000001', data.requestKey, data.input);
+    }
     await service.tick(); return { ok: true };
   });
   const dist = resolve('apps/admin-console/dist');

@@ -43,3 +43,12 @@ aside{overflow-y:auto}
 .points-overview-header p { margin: 0; }
 .points-overview > p { margin: .5rem 0; }
 .points-overview > .points-tools { margin: .5rem 0 0; padding: .65rem .8rem; }
+.ticket-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
+.ticket-event { padding: .8rem 0; border-bottom: 1px solid #36323f; }
+.ticket-event small { display: block; margin-top: .3rem; color: #b7aec5; }
+.ticket-event p { margin: .4rem 0; }
+.ticket-award { padding: 1rem; margin: 1rem 0; border: 1px solid #4b3b66; border-radius: 10px; }
+@media (max-width: 650px) { .ticket-filters { grid-template-columns: 1fr; } }
+.points-dialog > header { flex-shrink: 0; }
+.points-dialog > header h2 { min-width: 0; overflow-wrap: anywhere; }
+.points-dialog > header button { flex-shrink: 0; }

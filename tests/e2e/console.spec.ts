@@ -21,6 +21,7 @@ test('staff can create a prompt, handle a private mock ticket, publish configura
   await page.getByLabel('Reason / internal note').fill('Reviewed in local browser acceptance.');
   await page.getByRole('button', { name: 'Save status & note' }).click();
   await expect(page.getByRole('status')).toContainText('Ticket updated');
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByLabel('Approved publishing channel IDs').fill('123456789012345678');
   await page.getByRole('button', { name: 'Save configuration draft' }).click();

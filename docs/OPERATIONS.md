@@ -9,7 +9,7 @@
 `npm run dev` → 本地 Console 登录页选角色。此模式无 Discord 网络访问。Dashboard 统计来自真实本地表，不自动造用户/工单/积分数据。
 
 1. **Mimo & Ideas**：Surprise Me → Generate Game Prompt，生成可复制的完整文本。每日 UTC 限额从发布配置读取；抽种子每用户每小时最多 60 次，最近三次抽取降重复。
-2. **Test private support**：创建 Mock ticket；在 Tickets 查看、分配并写理由更改状态。Support 只可查看自己创建/分配给自己的工单，其他 ID 返回 404；Mods 可处理工单但不能修改配置或发消息。
+2. **Test private support**：创建 Mock ticket；在 Tickets 查看、分配并写理由更改状态。Support 只可查看自己创建/分配给自己的工单，其他 ID 返回 404；Mods 可处理工单并在授权工单内回复，但不能修改配置或发布社区公告。
 3. **Settings**：输入已审定频道 Snowflake IDs（本地测试可以明确使用测试 ID）→ Save configuration draft。
 4. **Lifecycle**：Inspect 草稿可查看完整内容和对应预览 → Publish 明确确认。配置冲突会要求刷新，不能静默覆盖。Restore as draft 不立即发布。
 5. 启用 messaging 前绑定发布频道白名单；编辑和保存新草稿，确认后发布。
@@ -26,7 +26,8 @@ Mock 模式中的频道/消息 ID 带 `mock-` 前缀，不能用于真实 Discor
 | `/idea`, `Surprise Me!`, `Try Another Idea` | ephemeral 创意卡片；种子必须 active / 已审核 |
 | `Generate Game Prompt` | 限额检查、持久化模板生成；完整 Prompt 以 `.txt` 附件供选择复制，不伪造剪贴板按钮 |
 | `Explore EvoMeme` | 查询最新已发布阶段配置，按可用 HTTPS 链接展示 CTA |
-| `/ticket`, `Submit a Ticket` | 核心字段 Modal → 已批准分类中显式私密频道；不提供公开降级 |
+| `/ticket`, `Submit a Ticket` | 选择主题 → 原生表单 → 已批准分类内的私密频道 |
+| `/ticket-panel` | 管理员/社区经理在已配置 help-desk 发布或更新常驻工单面板 |
 
 表单类别精确支持 `Bug`, `Creation Help`, `Account`, `Feature Request`, `Event`, `Other`。Account 仅为通用支持分类，不绑定产品账号、不要求产品 UID/VIP。所有普通消息默认禁止 ping；自动欢迎只白名单提及当前新成员。附件在工单频道手动补充；本版不下载、持久备份 Discord 附件。
 
@@ -63,8 +64,13 @@ Mock 模式中的频道/消息 ID 带 `mock-` 前缀，不能用于真实 Discor
 | POST | `/config/:id/rollback` | 从旧版复制新草稿，不直接生效 |
 | GET | `/preview` | 当前已发布 persona / phase / CTA / 占位说明 |
 | GET | `/tickets` | 按服务端角色过滤列表，非 Support 最多 200 条 |
-| GET | `/tickets/:id` | 授权详情 + 私有事件 |
-| PATCH | `/tickets/:id` | `{status,note,assignedTo?}`，reason 必填、重开窗口和限额检查 |
+| GET | `/tickets/search` | 主题、状态、优先级、申请人、处理人、编号/摘要搜索，20 条/页 |
+| GET | `/tickets/:id?page=1` | 授权详情、20 条/页内部记录、最近 10 条回复投递回执 |
+| PATCH | `/tickets/:id` | `{status?,note,assignedTo?,priority?,expectedVersion}`，检查并发版本、权限、重开窗口和限额 |
+| POST | `/tickets/:id/reply` | `{body,requestKey}`，排队发送给申请人；UUID 保证相同提交不重复 |
+| POST | `/tickets/:id/retry-sync` | 重试幂等权限/状态卡同步，不重发未知回复 |
+| POST | `/tickets/:id/provision-reviewed` | 管理员核查失败/未知建单后，`{confirm:true,note,expectedVersion}` 关闭遗留记录 |
+| POST | `/tickets/:id/award` | 管理员确认有效唯一问题/建议，`{confirm:true,reason}`；按已发布规则发一次积分 |
 | GET / POST | `/seeds` | 列表；新增 `{title,seed_text,category,approved}`，approved=false 保持 inactive |
 | GET | `/messages` | 最近 100 任务及 attempts / error / Discord message ID |
 | POST | `/messages` | `{channelId,body,scheduledAt}`，ISO8601 带时区，创建草稿 |
@@ -83,7 +89,7 @@ Config 的未知字段被拒绝；所有 `:id` 必须 UUID，Discord IDs 为 17�
 
 `SENT` 是 Discord 已接受并存入 message ID；不等于已读。`FAILED` 记录明确失败/重试耗尽；`UNKNOWN` 是外部操作结果无法确认。UNKNOWN 不自动重发：运营先核对 Discord 的消息/频道；必要时复制新草稿并确认，接受可能重复的后果。本版没有“标记成功”或盲目重试按钮。
 
-关闭工单前先在私密频道与用户确认；后台只记录状态，不自动向用户发通知。重新打开必须在配置窗口内，且不超过活跃工单限额。内部备注不会公开发布。没有 Known Issues 发布入口，不能将私人工单一键转公开。
+工单状态通知与用户回复由 Worker 发送；关闭后同步申请人的只读权限，重开恢复发言权限。重新打开必须在配置窗口内，且不超过活跃工单限额。内部备注只留在后台，不发送给申请人。失败/未知结果先人工核查；没有将私人工单一键转公开的入口。完整配置与操作见 [工单指南](TICKETS.md)。
 
 ## 架构说明
 

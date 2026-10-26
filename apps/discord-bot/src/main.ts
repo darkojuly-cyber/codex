@@ -1,6 +1,6 @@
 import {
   Client, GatewayIntentBits, MessageFlags, ActionRowBuilder,
-  ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle,
+  ButtonBuilder, ButtonStyle,
   type Interaction, type ChatInputCommandInteraction, type ButtonInteraction,
 } from 'discord.js';
 import { runtime } from '../../../packages/core/src/runtime.js';
@@ -10,6 +10,7 @@ import { showWelcome, providerErrorDetails } from './welcome.js';
 import { automaticWelcome } from './automatic-welcome.js';
 import { scoreGuildMessage } from './message-scope.js';
 import { showPoints, pointsUiVersion } from './points.js';
+import { handleTicketInteraction, ticketErrorText } from './tickets.js';
 import { pointsButtonIds } from './points-card.js';
 import { DiscordTransport } from '../../../packages/core/src/transport.js';
 
@@ -35,30 +36,17 @@ async function showIdea(interaction: ChatInputCommandInteraction | ButtonInterac
   const seed = await service.idea(interaction.user.id);
   await interaction.editReply({ content: `**${seed.title}**\n${seed.seed_text}\n\nWhat if we made this a game?`, components: [ideaButtons(String(seed.id))], allowedMentions: noMentions });
 }
-async function ticketModal(interaction: ChatInputCommandInteraction | ButtonInteraction) {
-  const c = (await service.current()).body;
-  if (!c.enabled.tickets || !c.channels.ticketCategory) throw new AppError(409, 'TICKETS_PENDING_APPROVAL');
-  const modal = new ModalBuilder().setCustomId('ticket:create').setTitle('Private support request');
-  const fields = [
-    new TextInputBuilder().setCustomId('category').setLabel('Bug / Creation Help / Account / Other').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(30),
-    new TextInputBuilder().setCustomId('summary').setLabel('Summary').setStyle(TextInputStyle.Short).setMinLength(5).setMaxLength(120).setRequired(true),
-    new TextInputBuilder().setCustomId('description').setLabel('Details, environment and steps to reproduce').setStyle(TextInputStyle.Paragraph).setMinLength(10).setMaxLength(3000).setRequired(true),
-  ];
-  modal.addComponents(...fields.map(field => new ActionRowBuilder<TextInputBuilder>().addComponents(field)));
-  await interaction.showModal(modal);
-}
 async function handle(interaction: Interaction) {
   if (interaction.guildId !== env.DISCORD_GUILD_ID) return;
+  if (await handleTicketInteraction(interaction, service, env)) return;
   if (interaction.isChatInputCommand()) {
     if (['points', 'rank', 'leaderboard'].includes(interaction.commandName)) return showPoints(interaction, service.xp, { channelId: env.EVO_POINTS_CHANNEL_ID });
     if (interaction.commandName === 'idea') return showIdea(interaction);
     if (interaction.commandName === 'welcome') return showWelcome(interaction, async () => (await service.current()).body);
-    if (interaction.commandName === 'ticket') return ticketModal(interaction);
   }
   if (interaction.isButton()) {
     if (pointsButtonIds.some(id => id === interaction.customId)) return showPoints(interaction, service.xp, { channelId: env.EVO_POINTS_CHANNEL_ID });
     if (interaction.customId === 'idea:another') return showIdea(interaction);
-    if (interaction.customId === 'ticket:new') return ticketModal(interaction);
     if (interaction.customId === 'links:current') {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const { body: c } = await service.current();
@@ -79,21 +67,16 @@ async function handle(interaction: Interaction) {
       return;
     }
   }
-  if (interaction.isModalSubmit() && interaction.customId === 'ticket:create') {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    const ticket = await service.createTicket(interaction.user.id, interaction.id, {
-      category: interaction.fields.getTextInputValue('category'), summary: interaction.fields.getTextInputValue('summary'), description: interaction.fields.getTextInputValue('description'),
-    });
-    await interaction.editReply({ content: ticket.private_channel_id ? `Your private ticket #${ticket.seq} is ready: <#${ticket.private_channel_id}>. You can upload screenshots there.` : `Ticket #${ticket.seq}: ${ticket.status}. Please contact support if provisioning does not finish.`, allowedMentions: noMentions });
-  }
+
 }
 client.on('interactionCreate', interaction => {
   void handle(interaction).catch(async error => {
-    const message = error instanceof AppError ? error.code : error?.name === 'ZodError' ? 'Please check the form fields and try again.' : 'Something went wrong. Please try again or contact support.';
+    const message = error instanceof AppError ? ticketErrorText(error.code) ?? error.code : error?.name === 'ZodError' ? 'Please check the form fields and try again.' : 'Something went wrong. Please try again or contact support.';
     console.error(JSON.stringify({ event: 'interaction.failed', code: error instanceof AppError ? error.code : 'INTERACTION_ERROR', ...providerErrorDetails(error) }));
     if (!interaction.isRepliable()) return;
     try {
-      if (interaction.deferred || interaction.replied) await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral, allowedMentions: noMentions });
+      if (interaction.deferred && !interaction.replied) await interaction.editReply({ content: message, embeds: [], components: [], allowedMentions: noMentions });
+      else if (interaction.replied) await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral, allowedMentions: noMentions });
       else await interaction.reply({ content: message, flags: MessageFlags.Ephemeral, allowedMentions: noMentions });
     } catch (reportError) { console.error(JSON.stringify({ event: 'interaction.report_failed', ...providerErrorDetails(reportError) })); }
   });

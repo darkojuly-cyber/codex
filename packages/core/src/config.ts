@@ -11,8 +11,9 @@ export const configSchema = z.object({
   timezone: z.string().refine(v => { try { new Intl.DateTimeFormat('en', { timeZone: v }); return true; } catch { return false; } }),
   persona: z.object({ name: z.string().min(1).max(32), welcome: z.string().min(1).max(1000), promptTemplate: z.string().min(10).max(1200) }).strict(),
   links: z.object({ intro: safeUrl, web: safeUrl, ios: safeUrl, android: safeUrl }).strict(),
-  channels: z.object({ welcome: optionalId, community: optionalId, ticketCategory: optionalId, publish: z.array(snowflake).max(30) }).strict(),
+  channels: z.object({ welcome: optionalId, community: optionalId, ticketCategory: optionalId, helpDesk: optionalId.optional(), publish: z.array(snowflake).max(30) }).strict(),
   enabled: z.object({ welcome: z.boolean(), tickets: z.boolean(), messaging: z.boolean(), web: z.boolean(), ios: z.boolean(), android: z.boolean() }).strict(),
+  ticketHourlyLimit: z.number().int().min(1).max(20).default(5),
   ticketLimit: z.number().int().min(1).max(5),
   reopenDays: z.number().int().min(0).max(30),
   promptDailyLimit: z.number().int().min(1).max(20),
@@ -28,9 +29,9 @@ export const defaults: Config = {
   phase: 'PRELAUNCH', timezone: 'Asia/Singapore',
   persona: { name: 'Mimo', welcome: 'Hey {user}, glad you found us 👾\n\nGot a weird idea? You’ll fit right in.\nMake a game, remix something unexpected, or just hang out and see what everyone’s cooking.\n\nNo idea where to start? Let Mimo surprise you. 🎲', promptTemplate: 'Create a playful, accessible game with clear mechanics and a shareable result.' },
   links: { intro: '', web: '', ios: '', android: '' },
-  channels: { welcome: '', community: '', ticketCategory: '', publish: [] },
+  channels: { welcome: '', community: '', ticketCategory: '', helpDesk: '', publish: [] },
   enabled: { welcome: false, tickets: false, messaging: false, web: false, ios: false, android: false },
-  ticketLimit: 2, reopenDays: 7, promptDailyLimit: 5,
+  ticketHourlyLimit: 5, ticketLimit: 2, reopenDays: 7, promptDailyLimit: 5,
 };
 export function ctas(c: Config) {
   const result: { label: string; url: string }[] = [];

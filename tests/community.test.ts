@@ -32,7 +32,7 @@ beforeAll(async () => { db = await openDatabase(process.env.TEST_DATABASE_URL, '
 afterAll(async () => { await db.close(); });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 beforeEach(async () => {
-  await db.query('TRUNCATE config_revision,audit_log,admin_session,oauth_state,member_state,idea_seed,idea_draw,prompt_generation,ticket,ticket_event,message_job,message_delivery,event_outbox RESTART IDENTITY CASCADE');
+  await db.query('TRUNCATE ticket_panel,xp_ledger,xp_boost_state,xp_rule_revision,xp_participant,config_revision,audit_log,admin_session,oauth_state,member_state,idea_seed,idea_draw,prompt_generation,ticket,ticket_event,message_job,message_delivery,event_outbox RESTART IDENTITY CASCADE');
   transport = new MockTransport(); service = new CommunityService(db, transport); await service.initialize();
 });
 

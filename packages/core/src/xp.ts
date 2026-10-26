@@ -148,9 +148,10 @@ export class XpService {
     await this.audit(tx, data.actor, 'xp.awarded', String(entry.id), { user: data.user, amount, ruleVersion: revision.version });
     return { awarded: true, reason: 'AWARDED', amount, entry };
   }
-  async message(input: { user: string; messageId: string; channelId: string; content: string; occurredAt: Date; bot: boolean; categoryId?: string | null; announcement?: boolean }) {
+  async message(input: { user: string; messageId: string; channelId: string; content: string; occurredAt: Date; bot: boolean; categoryId?: string | null; announcement?: boolean; parentChannelId?: string | null }) {
     if (input.bot) return { awarded: false, reason: 'BOT_MESSAGE', amount: 0 };
     userId.parse(input.user); userId.parse(input.messageId); userId.parse(input.channelId);
+    if ((await this.db.query('SELECT id FROM ticket WHERE private_channel_id=$1 OR private_channel_id=$2 LIMIT 1', [input.channelId, input.parentChannelId ?? null])).length) return { awarded: false, reason: 'TICKET_CHANNEL_EXCLUDED', amount: 0 };
     if (!(await this.refreshParticipant(input.user)).canEarn) return { awarded: false, reason: 'XP_MEMBER_NOT_ELIGIBLE', amount: 0 };
     return this.db.transaction(async tx => {
       await tx.query('LOCK TABLE xp_ledger IN EXCLUSIVE MODE');

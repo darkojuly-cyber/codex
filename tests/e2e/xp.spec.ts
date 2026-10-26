@@ -83,7 +83,9 @@ test('staff can review XP rules, award a contribution once and inspect bilingual
   await expect(page.getByRole('status')).toContainText('Contribution XP awarded');
   await reviewed.getByRole('button', { name: 'Award reviewed contribution', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('DUPLICATE_EVENT');
-  await expect(page.locator('.table-scroll tbody tr')).toHaveCount(2);
+  await page.getByLabel('Member ID filter', { exact: true }).fill('123456789012345678');
+  await page.getByRole('button', { name: 'Search points', exact: true }).click();
+  await expect(page.locator('.points-ledger-table tbody tr')).toHaveCount(2);
   await page.getByText('XP leaderboard', { exact: true }).click();
   await page.getByRole('combobox', { name: 'Period', exact: true }).selectOption('all_time');
   await page.getByRole('button', { name: 'Load leaderboard' }).click();

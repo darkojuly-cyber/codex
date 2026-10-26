@@ -37,6 +37,18 @@ export function translate(locale: Locale, key: string, values: Values = {}) {
 }
 
 const errorCopy: Record<string, string> = {
+  'TICKET_REPLY_CLOSED': '该工单不接受新回复，请先在允许时间内重新打开。',
+  'TICKET_REPLY_KEY_CONFLICT': '该回复请求已经使用过。请刷新核对已有回复，再发送其他内容。',
+  'TICKET_REPLY_UNKNOWN': '无法确认 Discord 是否已接收，请先到频道核查，不要直接重复发送。',
+  'TICKET_REPLY_NO_LONGER_AUTHORIZED': '工单状态或分配已变化，该回复已取消发送。',
+  'TICKET_CHANNEL_MISSING': '此旧工单没有有效私密频道，请提交新工单。',
+
+  'TICKET_CHANGED': '工单已被其他工作人员修改，请载入最新版本后重试。',
+  'TICKET_HOURLY_LIMIT': '该成员最近提交的工单过多，请稍后再试。',
+  'TICKET_SYNC_FAILED': 'Discord 同步失败；数据库记录已保留，请检查频道权限并重试同步。',
+  'TICKET_PANEL_UNKNOWN': '无法确认入口面板的上次发布结果，请先检查频道，再决定是否替换。',
+  'TICKET_NOT_ISSUE': '只有问题报告或功能建议可通过此入口发放确认问题积分。',
+
   'XP_MEMBER_NOT_ELIGIBLE': '该账号无法参与积分（例如机器人或已离开服务器的成员）。',
   'XP_ELIGIBILITY_UNAVAILABLE': '暂时无法核实成员资格，本次不会发分，请稍后重试。',
   'XP_DATE_RANGE': '开始日期不能晚于结束日期。',

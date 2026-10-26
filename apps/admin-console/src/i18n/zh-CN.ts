@@ -1,5 +1,10 @@
 /** Console copy only. User-authored content, Discord templates and protocol values stay intact. */
 export const zhCN: Record<string, string> = {
+  'Chat scores across the server except excluded categories and announcement channels. Threads inherit their parent category. Message Content Intent is required. Official discussion bonuses are unused in category mode.': '聊天在全服计分，排除指定类别和公告频道；讨论串沿用上级频道类别。需要开启 Message Content Intent。类别排除模式不使用官方讨论额外规则。',
+  'Published legacy rules still use channel lists until a category exclusion draft is published.': '当前旧版规则仍使用频道名单；发布类别排除草稿后才会切换。',
+  'Use EvoMeme exclusions: OFFICIAL, EVENTS, STAFF ONLY': '排除公告、活动、工作人员类别（OFFICIAL / EVENTS / STAFF ONLY）',
+  'Excluded category IDs (comma separated)': '排除的频道类别 ID（逗号分隔）',
+
   'Create the agreed Evo Points proposal while keeping scoring paused. Existing published rules and past awards stay in place.': '按确认的分值生成 Evo Points 草稿，计分总开关保持关闭。已有已发布规则和历史积分保留。',
   'Create Evo Points draft': '生成 Evo Points 规则草稿',
   'Evo Points draft created. Review, approve and publish it below.': 'Evo Points 草稿已生成，请在下方检查、审核并发布。',

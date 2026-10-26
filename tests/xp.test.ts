@@ -69,6 +69,18 @@ describe('XP rules, ledger and fairness', () => {
     expect(evoPointsProposal(old)).toEqual(body);
   });
 
+  it('scores new and uncategorized channels without binding IDs, excluding categories and announcements', async () => {
+    const excluded = '1560526680613716068';
+    await enable(c => { c.excludedCategoryIds = [excluded]; c.rules = c.rules.filter(r => ['first_message','chat'].includes(r.event)); c.rules.forEach(r => { r.channels = []; r.cooldownSeconds = 0; }); });
+    const scope = { categoryId: null, announcement: false };
+    expect((await xp.message({ ...message('A useful post in a restricted staff channel'), ...scope, categoryId: excluded })).reason).toBe('CHANNEL_NOT_ELIGIBLE');
+    expect((await xp.message({ ...message('A useful announcement in some other category'), ...scope, announcement: true })).reason).toBe('CHANNEL_NOT_ELIGIBLE');
+    expect((await xp.message(message('An unresolved parent must never receive points'))).reason).toBe('CHANNEL_METADATA_UNAVAILABLE');
+    expect((await xp.message({ ...message('A first useful message in an uncategorized channel'), ...scope })).amount).toBe(10);
+    expect((await xp.message({ ...message('A second useful message in a brand new channel'), ...scope, channelId: '623456789012345678', categoryId: '723456789012345678' })).amount).toBe(2);
+    expect((await xp.summary(user)).lifetimeXp).toBe(12);
+  });
+
   it('starts disabled and requires review, permission and an unchanged published version', async () => {
     expect((await xp.current()).body.enabled).toBe(false);
     const config = structuredClone(xpDefaults); config.enabled = true;

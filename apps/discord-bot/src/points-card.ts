@@ -18,7 +18,7 @@ export function pointsNavigation(): { components: APIActionRowComponent<APIButto
 export function pointsGuide(config: XpConfig, appearance: WelcomeAppearance = {}, now = new Date()) {
   const eligible = (rule: XpRule) => rule.enabled && (!rule.startsAt || now >= new Date(rule.startsAt))
     && (!rule.endsAt || now < new Date(rule.endsAt))
-    && (!config.enabled || !['first_message','chat','official_discussion'].includes(rule.event) || rule.channels.length > 0);
+    && (!config.enabled || !['first_message','chat','official_discussion'].includes(rule.event) || (config.excludedCategoryIds !== undefined ? rule.event !== 'official_discussion' : rule.channels.length > 0));
   const rule = (event: XpEvent) => config.rules.find(r => r.event === event && eligible(r));
   const cap = (r: XpRule) => r.dailyCap ? ` · up to ${r.dailyCap}/day` : '';
   const lines: string[] = [];

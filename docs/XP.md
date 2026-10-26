@@ -92,3 +92,11 @@ $env:MESSAGE_CONTENT_INTENT = "true"
 验证结果（2026-10-23）：`npm run lint`、`npm run build` 通过；PGlite 与 PostgreSQL 各 62 项测试通过，7 项浏览器流程通过。独立数据库的实际 HTTP 发奖验证输出：`{"database":"PostgreSQL","ruleVersion":2,"awardedXp":15,"ledgerEntries":1,"replay":"DUPLICATE_EVENT","result":"PASS"}`。截图为本地 Mock 测试数据：[桌面](screenshots/xp-desktop.png)、[中文移动端](screenshots/xp-mobile.png)。
 
 连接恢复验证：重启独立 PostgreSQL 后，同一 Node 进程收到脱敏的空闲连接错误提示，并在下一次查询自动重连，输出 `POOL_RECOVERY_PASS`。连接池设置 15 秒连接超时，不输出原始连接对象或凭证。
+
+### 全服聊天计分与类别排除
+
+后台积分编辑器点击“排除公告、活动、工作人员类别（OFFICIAL / EVENTS / STAFF ONLY）”，会填入 EvoMeme 已核对的三个类别 ID：OFFICIAL `1560526464481501345`、EVENTS `1560526751317106819`、STAFF ONLY `1560526680613716068`。其他服务器请修改为自己的类别 ID。这里填写的是类别 ID，不是频道 ID。
+
+此模式无需绑定计分频道：其他类别及无类别的频道可计分，新建频道自动按所在类别判断。讨论串（含论坛帖子）沿用上级频道的类别；Discord 公告频道及其讨论串始终不计分。无法取得上级频道信息时跳过计分。此范围仅影响自动消息计分，人工审核贡献和 Boost 不受影响。首次有效发言和日常聊天仍不叠加，不使用旧“官方讨论”额外规则。
+
+检查总开关、分值、排除类别并填写修改原因，然后保存草稿、审核、发布。旧版已发布规则在新草稿发布前继续使用原频道名单；历史积分不会重算。更新代码后重启 Bot 和 API（使用一键启动时先 Stop，再 Start），不需要重新注册指令。Message Content Intent 仍需开启。

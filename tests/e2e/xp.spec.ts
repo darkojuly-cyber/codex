@@ -43,6 +43,10 @@ test('staff can review XP rules, award a contribution once and inspect bilingual
   const creation = page.locator('.xp-rule').filter({ has: page.locator('summary').filter({ hasText: 'Creation' }) });
   await creation.locator('summary').click();
   await creation.getByLabel('Enable this rule').check();
+  await page.getByRole('button', { name: 'Use EvoMeme exclusions: OFFICIAL, EVENTS, STAFF ONLY', exact: true }).click();
+  await expect(page.getByLabel('Excluded category IDs')).toHaveValue('1560526464481501345, 1560526751317106819, 1560526680613716068');
+  await expect(creation.getByLabel('Eligible channel IDs')).toHaveCount(0);
+  expect((await (await page.request.get('/api/xp/rules')).json()).body.excludedCategoryIds).toBeUndefined();
   await page.getByLabel('Reason for rule change').fill('Reviewed E2E contribution rewards');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'XP & Rewards', exact: true }).click();
@@ -54,6 +58,7 @@ test('staff can review XP rules, award a contribution once and inspect bilingual
   page.on('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Publish XP rules', exact: true }).click();
   await expect(page.getByText('Scoring enabled', { exact: true })).toBeVisible();
+  expect((await (await page.request.get('/api/xp/rules')).json()).body.excludedCategoryIds).toEqual(['1560526464481501345', '1560526751317106819', '1560526680613716068']);
 
   const adjustment = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Manual XP adjustment', exact: true }) });
   await adjustment.getByLabel('Discord user ID').fill('123456789012345678');

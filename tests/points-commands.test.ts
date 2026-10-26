@@ -111,3 +111,10 @@ it('shows a friendly empty board without inventing members or points', async () 
   expect(leaderboard).toHaveBeenCalledWith('all_time', 1);
   expect(JSON.stringify(command.editReply.mock.calls[0][0])).toContain('No points on this board yet');
 });
+
+it('shows first-message and chat rewards in category mode without channel bindings', () => {
+  const config = { ...structuredClone(xpDefaults), enabled: true, excludedCategoryIds: ['1560526680613716068'] };
+  const description = pointsGuide(config).embeds[0].description;
+  expect(description).toContain('First meaningful message: **10 points**');
+  expect(description).toContain('Eligible chat: **2 points**');
+});

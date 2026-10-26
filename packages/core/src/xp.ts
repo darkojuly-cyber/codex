@@ -83,8 +83,8 @@ export class XpService {
     if (!c.enabled || !rule?.enabled) return reject('XP_DISABLED');
     if (!Number.isFinite(data.occurredAt.getTime()) || data.occurredAt.getTime() > now + 5000 || data.occurredAt < new Date(revision.published_at!)) return reject('EVENT_OUTSIDE_RULE_VERSION');
     if ((rule.startsAt && data.occurredAt < new Date(rule.startsAt)) || (rule.endsAt && data.occurredAt >= new Date(rule.endsAt))) return reject('RULE_OUTSIDE_WINDOW');
-    if (['first_message', 'chat', 'official_discussion'].includes(data.event) && (!data.channel || !rule.channels.includes(data.channel))) return reject('CHANNEL_NOT_ELIGIBLE');
-    if (rule.channels.length && data.channel && !rule.channels.includes(data.channel)) return reject('CHANNEL_NOT_ELIGIBLE');
+    if (['first_message', 'chat', 'official_discussion'].includes(data.event) && c.excludedCategoryIds === undefined && (!data.channel || !rule.channels.includes(data.channel))) return reject('CHANNEL_NOT_ELIGIBLE');
+    if (c.excludedCategoryIds === undefined && rule.channels.length && data.channel && !rule.channels.includes(data.channel)) return reject('CHANNEL_NOT_ELIGIBLE');
     if ((await tx.query('SELECT id FROM xp_ledger WHERE source_key=$1', [data.source])).length) return reject('DUPLICATE_EVENT');
     if (['first_message', 'boost_first'].includes(data.event) && (await tx.query('SELECT id FROM xp_ledger WHERE user_id=$1 AND event_kind=$2', [data.user, data.event])).length) return reject('ALREADY_REWARDED');
     if (data.hash && (await tx.query("SELECT id FROM xp_ledger WHERE user_id=$1 AND content_hash=$2 AND occurred_at>=$3::timestamptz-interval '24 hours'", [data.user, data.hash, data.occurredAt])).length) return reject('REPEATED_CONTENT');
@@ -99,17 +99,21 @@ export class XpService {
     await this.audit(tx, data.actor, 'xp.awarded', String(entry.id), { user: data.user, amount, ruleVersion: revision.version });
     return { awarded: true, reason: 'AWARDED', amount, entry };
   }
-  async message(input: { user: string; messageId: string; channelId: string; content: string; occurredAt: Date; bot: boolean }) {
+  async message(input: { user: string; messageId: string; channelId: string; content: string; occurredAt: Date; bot: boolean; categoryId?: string | null; announcement?: boolean }) {
     if (input.bot) return { awarded: false, reason: 'BOT_MESSAGE', amount: 0 };
     userId.parse(input.user); userId.parse(input.messageId); userId.parse(input.channelId);
     return this.db.transaction(async tx => {
       await tx.query('LOCK TABLE xp_ledger IN EXCLUSIVE MODE');
       const revision = await this.current(tx);
+      if (revision.body.excludedCategoryIds !== undefined) {
+        if (input.categoryId === undefined || input.announcement === undefined) return { awarded: false, reason: 'CHANNEL_METADATA_UNAVAILABLE', amount: 0 };
+        if (input.announcement || (input.categoryId !== null && revision.body.excludedCategoryIds.includes(input.categoryId))) return { awarded: false, reason: 'CHANNEL_NOT_ELIGIBLE', amount: 0 };
+      }
       const normalized = input.content.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ');
       // Ignore emoji/mention/link-only spam, and never persist raw message content.
       const meaningful = normalized.replace(/<[^>]*>|https?:\/\/\S+/g, '').replace(/[^\p{L}\p{N}]/gu, '');
       if (meaningful.length < revision.body.minimumCharacters) return { awarded: false, reason: 'MESSAGE_TOO_SHORT', amount: 0 };
-      const eligible = revision.body.rules.filter(r => r.enabled && r.channels.includes(input.channelId));
+      const eligible = revision.body.rules.filter(r => r.enabled && (revision.body.excludedCategoryIds !== undefined ? r.event !== 'official_discussion' : r.channels.includes(input.channelId)));
       const first = eligible.find(r => r.event === 'first_message');
       const hasFirst = (await tx.query("SELECT id FROM xp_ledger WHERE user_id=$1 AND event_kind='first_message'", [input.user])).length > 0;
       // One message earns one reward: first message, else official discussion, else chat.

@@ -8,6 +8,7 @@ import { AppError, ctas } from '../../../packages/core/src/config.js';
 import { readEnv } from '../../../packages/core/src/env.js';
 import { showWelcome, providerErrorDetails } from './welcome.js';
 import { automaticWelcome } from './automatic-welcome.js';
+import { messageChannelScope } from './message-scope.js';
 import { showPoints } from './points.js';
 import { pointsButtonIds } from './points-card.js';
 import { DiscordTransport } from '../../../packages/core/src/transport.js';
@@ -106,7 +107,7 @@ client.on('guildMemberAdd', member => { void autoWelcome.joined(member).catch(we
 client.on('guildMemberUpdate', (oldMember, member) => { void autoWelcome.updated(oldMember, member).catch(welcomeFailed); });
 client.on('messageCreate', message => {
   if (env.MESSAGE_CONTENT_INTENT !== 'true' || message.guildId !== env.DISCORD_GUILD_ID || message.author.bot || message.webhookId || message.system) return;
-  void service.xp.message({ user: message.author.id, messageId: message.id, channelId: message.channelId, content: message.content, occurredAt: message.createdAt, bot: false })
+  void messageChannelScope(message).then(scope => service.xp.message({ ...scope, user: message.author.id, messageId: message.id, channelId: message.channelId, content: message.content, occurredAt: message.createdAt, bot: false }))
     .catch(error => console.error(JSON.stringify({ event: 'xp.message_failed', ...providerErrorDetails(error) })));
 });
 client.on('guildMemberUpdate', (oldMember, member) => {

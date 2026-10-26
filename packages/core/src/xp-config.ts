@@ -11,6 +11,7 @@ export const xpRuleSchema = z.object({
   .refine(r => r.channels.length === 0 || ['first_message','chat','official_discussion'].includes(r.event), 'Only message rules use channel restrictions');
 export const xpConfigSchema = z.object({
   enabled: z.boolean(), timezone: z.string().refine(v => { try { new Intl.DateTimeFormat('en', { timeZone: v }); return true; } catch { return false; } }),
+  excludedCategoryIds: z.array(z.string().regex(/^\d{17,20}$/)).max(50).optional(),
   minimumCharacters: z.number().int().min(5).max(200),
   levelThresholds: z.array(z.number().int().min(0).max(100000000)).min(1).max(50)
     .refine(a => a[0] === 0 && a.every((v, i) => i === 0 || v > a[i - 1]), 'Start at zero and use increasing thresholds'),

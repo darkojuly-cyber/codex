@@ -194,12 +194,14 @@ export class XpService {
     const xp = Number(total.xp);
     const level = revision.body.levelThresholds.filter(threshold => xp >= threshold).length;
     const ranks: Record<string, number | null> = {};
+    const periodXp: Record<string, number> = {};
     for (const period of ['weekly', 'monthly', 'all_time'] as const) {
       const start = periodStart(now, period, revision.body.timezone);
-      const [rank] = await this.db.query("WITH totals AS (SELECT user_id,SUM(amount)::bigint AS xp FROM xp_ledger WHERE ($2::date IS NULL OR (occurred_at AT TIME ZONE $1)::date >= $2::date) AND occurred_at<=$4 GROUP BY user_id HAVING SUM(amount)>0), ranked AS (SELECT user_id,DENSE_RANK() OVER(ORDER BY xp DESC)::int AS rank FROM totals) SELECT rank FROM ranked WHERE user_id=$3", [revision.body.timezone, start, user, now]);
-      ranks[period] = rank ? Number(rank.rank) : null;
+      const [rank] = await this.db.query("WITH totals AS (SELECT user_id,SUM(amount)::bigint AS xp FROM xp_ledger WHERE ($2::date IS NULL OR (occurred_at AT TIME ZONE $1)::date >= $2::date) AND occurred_at<=$4 GROUP BY user_id), ranked AS (SELECT user_id,DENSE_RANK() OVER(ORDER BY xp DESC)::int AS rank FROM totals WHERE xp>0) SELECT (SELECT rank FROM ranked WHERE user_id=$3) AS rank, COALESCE((SELECT xp FROM totals WHERE user_id=$3),0)::bigint AS xp", [revision.body.timezone, start, user, now]);
+      ranks[period] = rank.rank === null ? null : Number(rank.rank);
+      periodXp[period] = Number(rank.xp);
     }
-    return { userId: user, lifetimeXp: xp, level, nextLevelXp: revision.body.levelThresholds[level] ?? null, ranks, enabled: revision.body.enabled, timezone: revision.body.timezone };
+    return { userId: user, lifetimeXp: xp, level, nextLevelXp: revision.body.levelThresholds[level] ?? null, ranks, periodXp, enabled: revision.body.enabled, timezone: revision.body.timezone };
   }
   async history(user: string, page = 1) {
     z.number().int().min(1).max(100).parse(page);

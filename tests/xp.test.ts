@@ -254,6 +254,7 @@ describe('XP rules, ledger and fairness', () => {
     const now = new Date('2026-11-02T00:00:00Z');
     const summary = await xp.summary(user, now);
     expect(summary.lifetimeXp).toBe(72);
+    expect(summary.periodXp).toEqual({ weekly: 12, monthly: 32, all_time: 72 });
     expect(summary.ranks).toEqual({ weekly: 2, monthly: 2, all_time: 1 });
     for (const [period, expected] of [['weekly',12], ['monthly',32], ['all_time',72]] as const) {
       const board = await xp.leaderboard(period, 1, now);
@@ -261,6 +262,18 @@ describe('XP rules, ledger and fairness', () => {
     }
     expect((await xp.leaderboard('weekly', 1, now)).entries.map(entry => entry.rank)).toEqual([1,2,2]);
     expect((await xp.leaderboard('weekly', 1, new Date('2026-11-01T16:00:00Z'))).entries.find(entry => entry.user_id === user)?.xp).toBe(10);
+  });
+
+  it('shows negative period corrections in personal points while leaving non-positive period totals unranked', async () => {
+    await enable();
+    const original = await xp.adjust(admin, { userId: user, amount: 20, requestKey: randomUUID(), reason: 'Previously reviewed contribution' });
+    const correction = await xp.adjust(admin, { userId: user, amount: -3, requestKey: randomUUID(), reason: 'Correct this week contribution value' });
+    await db.query('UPDATE xp_ledger SET occurred_at=$1 WHERE id=$2', ['2026-10-20T10:00:00Z', original.id]);
+    await db.query('UPDATE xp_ledger SET occurred_at=$1 WHERE id=$2', ['2026-10-27T10:00:00Z', correction.id]);
+    const summary = await xp.summary(user, new Date('2026-10-27T12:00:00Z'));
+    expect(summary.lifetimeXp).toBe(17);
+    expect(summary.periodXp).toEqual({ weekly: -3, monthly: 17, all_time: 17 });
+    expect(summary.ranks).toEqual({ weekly: null, monthly: 1, all_time: 1 });
   });
 
   it('returns deterministic tied ranks, calendar periods, pagination and only the member’s own history', async () => {

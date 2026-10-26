@@ -9,7 +9,7 @@ import { readEnv } from '../../../packages/core/src/env.js';
 import { showWelcome, providerErrorDetails } from './welcome.js';
 import { automaticWelcome } from './automatic-welcome.js';
 import { scoreGuildMessage } from './message-scope.js';
-import { showPoints } from './points.js';
+import { showPoints, pointsUiVersion } from './points.js';
 import { pointsButtonIds } from './points-card.js';
 import { DiscordTransport } from '../../../packages/core/src/transport.js';
 
@@ -118,7 +118,7 @@ client.on('guildMemberUpdate', (oldMember, member) => {
 async function fetchBoost(user: string) {
   return service.transport instanceof DiscordTransport ? service.transport.boostSince(user) : null;
 }
-client.once('clientReady', () => console.log(JSON.stringify({ event: 'bot.ready', mode: 'DISCORD', membersIntent: env.GUILD_MEMBERS_INTENT, warning: env.GUILD_MEMBERS_INTENT !== 'true' ? 'Automatic welcome unavailable; use /welcome' : undefined })));
+client.once('clientReady', () => console.log(JSON.stringify({ event: 'bot.ready', mode: 'DISCORD', pointsUiVersion, messageContentIntent: env.MESSAGE_CONTENT_INTENT, pid: process.pid, membersIntent: env.GUILD_MEMBERS_INTENT, warning: env.GUILD_MEMBERS_INTENT !== 'true' ? 'Automatic welcome unavailable; use /welcome' : undefined })));
 client.on('error', () => console.error('Discord Gateway error'));
 let shutdownRequested = false;
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {

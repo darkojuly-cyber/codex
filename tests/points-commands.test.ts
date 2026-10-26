@@ -84,10 +84,10 @@ it.each(['weekly','monthly'] as const)('routes the %s board button to current da
 
 it('routes My Points to the pressing member’s own account', async () => {
   const command = button('xp:rank');
-  const summary = vi.fn(async () => ({ timezone: 'Asia/Shanghai', lifetimeXp: 30, level: 1, nextLevelXp: 100, ranks: { weekly: 2, monthly: 3, all_time: 4 }, enabled: true }));
+  const summary = vi.fn(async () => ({ timezone: 'Asia/Shanghai', periodXp: { weekly: 12, monthly: 20, all_time: 30 }, lifetimeXp: 30, level: 1, nextLevelXp: 100, ranks: { weekly: 2, monthly: 3, all_time: 4 }, enabled: true }));
   await showPoints(command.value, { summary } as unknown as XpService);
   expect(summary).toHaveBeenCalledWith('123456789012345678');
-  expect(JSON.stringify(command.editReply.mock.calls[0][0])).toContain('30 total points');
+  expect(JSON.stringify(command.editReply.mock.calls[0][0])).toContain('30 Evo Points');
 });
 
 it('keeps old welcome xp:rules buttons working', async () => {
@@ -126,7 +126,7 @@ function inPointsChannel(command: ReturnType<typeof interaction> | ReturnType<ty
   Object.assign(command.value, { guildId: '923456789012345678', channelId });
   return { ...command, channelId };
 }
-const account = { timezone: 'Asia/Shanghai', lifetimeXp: 30, ranks: { weekly: 2, monthly: 3, all_time: 4 }, enabled: true };
+const account = { timezone: 'Asia/Shanghai', periodXp: { weekly: 12, monthly: 20, all_time: 30 }, lifetimeXp: 30, ranks: { weekly: 2, monthly: 3, all_time: 4 }, enabled: true };
 
 it.each(['rules', 'rank', 'leaderboard'])('shares %s publicly only in the configured channel', async kind => {
   const command = inPointsChannel(interaction(kind === 'rules' ? 'points' : kind));
@@ -205,7 +205,7 @@ it('uses one paused message across the rule card, personal points and empty boar
 
 it('puts the overall rank in the main title, with clear unranked and weekly/monthly states', async () => {
   for (const ranked of [true, false]) {
-    const command = button('xp:rank');
+    const command = interaction('rank');
     await showPoints(command.value, { summary: async () => ({ ...account, ranks: ranked ? account.ranks : { weekly: null, monthly: null, all_time: null }, lifetimeXp: ranked ? 30 : 0 }) } as unknown as XpService);
     const embed = (command.editReply.mock.calls[0][0] as { embeds: { title: string; fields: { name: string; value: string }[] }[] }).embeds[0];
     expect(embed.title).toBe(ranked ? '🏆 #4 · Overall Rank' : '✨ Unranked · Overall Rank');
@@ -223,4 +223,25 @@ it('explains commands and calendar ranking periods using the configured timezone
   expect(embed.description).toContain('**America/New_York**');
   expect(embed.description).toContain('Equal points share a rank');
   expect(embed.description).toContain('your total points stay');
+});
+
+it('shows a points overview for My Points and preserves the podium rank card when /rank falls back to private delivery', async () => {
+  const command = inPointsChannel(interaction('rank'));
+  const mine = inPointsChannel(button('xp:rank'), command.channelId);
+  const cooled = inPointsChannel(interaction('rank'), command.channelId);
+  const summary = vi.fn(async () => ({ ...account, ranks: { weekly: 1, monthly: 1, all_time: 1 } }));
+  const xp = { summary } as unknown as XpService;
+  for (const value of [command, mine, cooled]) await showPoints(value.value, xp, { channelId: command.channelId });
+  const payload = (value: typeof command | typeof mine) => value.editReply.mock.calls[0][0] as { content?: string; embeds: { title: string; color: number; fields: { value: string }[] }[] };
+  expect(payload(command).embeds[0].title).toBe('🥇 #1 · Overall Rank');
+  expect(payload(command).embeds[0].color).toBe(0xf6c453);
+  expect(payload(mine).embeds[0].title).toBe('✨ 30 Evo Points');
+  expect(payload(mine).embeds[0].color).toBe(0xa78bfa);
+  expect(payload(mine).embeds[0].fields.map(field => field.value)).toEqual(['**12 points**', '**20 points**', '🥇 **#1**']);
+  expect(payload(mine).content).toBeUndefined();
+  expect(payload(cooled).content).toContain('private result');
+  expect(payload(cooled).embeds[0]).toEqual(payload(command).embeds[0]);
+  expect(mine.deferReply).toHaveBeenCalledWith({ flags: MessageFlags.Ephemeral });
+  expect(cooled.deferReply).toHaveBeenCalledWith({ flags: MessageFlags.Ephemeral });
+  expect(summary).toHaveBeenCalledTimes(3);
 });

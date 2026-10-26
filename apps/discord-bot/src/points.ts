@@ -5,6 +5,7 @@ import { pointsGuide, pointsNavigation, pointsPaused } from './points-card.js';
 
 const noMentions = { parse: [] as never[], users: [], roles: [], repliedUser: false };
 const safe = (value: string) => value.replace(/([\\`*_~|>[\]])/g, '\\$1').replace(/@/g, '@\u200b');
+export const pointsUiVersion = 'points-v3';
 const publicCooldowns = new Map<string, number>();
 function rankAppearance(rank: number | null) {
   if (rank === 1) return { color: 0xf6c453, badge: '🥇' };
@@ -43,9 +44,25 @@ export async function showPoints(interaction: ChatInputCommandInteraction | Butt
     const rank = (value: number | null) => value ? `${rankAppearance(value).badge} **#${value}**` : 'Unranked';
     const appearance = rankAppearance(summary.ranks.all_time);
     const avatar = interaction.user.displayAvatarURL({ size: 256, extension: 'png' });
+    if (buttonId === 'xp:rank') {
+      await interaction.editReply({ embeds: [{
+        color: 0xa78bfa,
+        author: { name: 'My Points', icon_url: avatar },
+        title: `✨ ${summary.lifetimeXp} Evo Points`,
+        thumbnail: { url: avatar },
+        description: 'Your personal points overview.',
+        fields: [
+          { name: '🏆 Points this week', value: `**${summary.periodXp.weekly} points**`, inline: true },
+          { name: '📅 Points this month', value: `**${summary.periodXp.monthly} points**`, inline: true },
+          { name: '✨ Overall rank', value: rank(summary.ranks.all_time), inline: true },
+        ],
+        footer: { text: summary.enabled ? `${summary.timezone} · Period totals include point corrections` : pointsPaused },
+      }], ...pointsNavigation(), ...delivery });
+      return;
+    }
     await interaction.editReply({ embeds: [{
       color: appearance.color,
-      author: { name: publicReply ? `${interaction.user.username ?? interaction.user.id} · Evo Points` : 'My Evo Points', icon_url: avatar },
+      author: { name: `${interaction.user.username ?? interaction.user.id} · Evo Points`, icon_url: avatar },
       title: summary.ranks.all_time ? `${appearance.badge} #${summary.ranks.all_time} · Overall Rank` : '✨ Unranked · Overall Rank',
       thumbnail: { url: avatar },
       description: `✨ **${summary.lifetimeXp} total points**${summary.ranks.all_time ? '' : '\nEarn your first points to join the rankings.'}`,

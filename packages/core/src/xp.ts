@@ -156,7 +156,7 @@ export class XpService {
     const revision = await this.current();
     const start = periodStart(now, period, revision.body.timezone);
     const rows = await this.db.query("WITH totals AS (SELECT user_id,SUM(amount)::bigint AS xp FROM xp_ledger WHERE ($2::date IS NULL OR (occurred_at AT TIME ZONE $1)::date >= $2::date) AND occurred_at<=$3 GROUP BY user_id HAVING SUM(amount)>0), ranked AS (SELECT user_id,xp,DENSE_RANK() OVER(ORDER BY xp DESC)::int AS rank FROM totals) SELECT * FROM ranked ORDER BY xp DESC,user_id LIMIT 10 OFFSET $4", [revision.body.timezone, start, now, (page - 1) * 10]);
-    return { period, page, timezone: revision.body.timezone, startsOn: start, entries: rows.map(r => ({ user_id: String(r.user_id), rank: Number(r.rank), xp: Number(r.xp) })) };
+    return { period, page, enabled: revision.body.enabled, timezone: revision.body.timezone, startsOn: start, entries: rows.map(r => ({ user_id: String(r.user_id), rank: Number(r.rank), xp: Number(r.xp) })) };
   }
   async summary(user: string) {
     const revision = await this.current();

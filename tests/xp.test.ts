@@ -7,6 +7,8 @@ import { type Actor } from '../packages/core/src/config.js';
 import { CommunityService } from '../packages/core/src/service.js';
 import { MockTransport } from '../packages/core/src/transport.js';
 import { readEnv } from '../packages/core/src/env.js';
+import { ChannelType, type Message } from 'discord.js';
+import { scoreGuildMessage } from '../apps/discord-bot/src/message-scope.js';
 import { createApp } from '../apps/api/src/app.js';
 
 let db: Database;
@@ -79,6 +81,21 @@ describe('XP rules, ledger and fairness', () => {
     expect((await xp.message({ ...message('A first useful message in an uncategorized channel'), ...scope })).amount).toBe(10);
     expect((await xp.message({ ...message('A second useful message in a brand new channel'), ...scope, channelId: '623456789012345678', categoryId: '723456789012345678' })).amount).toBe(2);
     expect((await xp.summary(user)).lifetimeXp).toBe(12);
+  });
+
+  it('excludes the configured public points channel and its threads even outside excluded categories', async () => {
+    await enable(c => { c.excludedCategoryIds = []; c.rules = c.rules.filter(r => ['first_message','chat'].includes(r.event)); });
+    const options = { enabled: true, guildId: '923456789012345678', pointsChannelId: channel };
+    const make = (id: string, parentId: string | null, thread: boolean) => ({
+      id: String(823456789012345600n + BigInt(++messageNumber)), guildId: options.guildId, guild: {},
+      author: { id: user, bot: false }, channelId: id, content: 'A meaningful message that should not farm points', createdAt: new Date(),
+      channel: { isThread: () => thread, parentId, type: ChannelType.GuildText },
+    }) as unknown as Message;
+    await scoreGuildMessage(make(channel, null, false), xp, options);
+    await scoreGuildMessage(make('723456789012345678', channel, true), xp, options);
+    expect(await xp.history(user)).toHaveLength(0);
+    await scoreGuildMessage(make('623456789012345678', null, false), xp, options);
+    expect((await xp.summary(user)).lifetimeXp).toBe(10);
   });
 
   it('starts disabled and requires review, permission and an unchanged published version', async () => {

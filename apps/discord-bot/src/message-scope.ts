@@ -1,4 +1,12 @@
 import { ChannelType, type Message } from 'discord.js';
+import type { XpService } from '../../../packages/core/src/xp.js';
+
+export async function scoreGuildMessage(message: Message, xp: Pick<XpService, 'message'>, options: { enabled: boolean; guildId: string; pointsChannelId?: string }) {
+  if (!options.enabled || message.guildId !== options.guildId || message.author.bot || message.webhookId || message.system) return;
+  if (options.pointsChannelId && (message.channelId === options.pointsChannelId || (message.channel.isThread() && message.channel.parentId === options.pointsChannelId))) return;
+  const scope = await messageChannelScope(message);
+  return xp.message({ ...scope, user: message.author.id, messageId: message.id, channelId: message.channelId, content: message.content, occurredAt: message.createdAt, bot: false });
+}
 
 // A thread's parent is a text/forum channel, not a category. Resolve that extra hop.
 // Failed resolution rejects scoring rather than treating an unknown category as public.

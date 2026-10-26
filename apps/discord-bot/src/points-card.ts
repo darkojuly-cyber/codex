@@ -4,6 +4,7 @@ import { discordImage, type WelcomeAppearance } from '../../../packages/core/src
 
 export const evoPointsTitle = '✨ Evo Points — A little recognition for being part of it';
 export const evoPointsIntro = 'Good conversations, creative ideas, and helpful people make EvoMeme worth coming back to. Evo Points celebrate the members who keep this community active and welcoming.';
+export const pointsPaused = 'Evo Points aren’t being awarded right now. Stay tuned!';
 export const evoPointsFooter = '✨ Stay tuned for future reward updates.';
 export const pointsButtonIds = ['xp:rules', 'xp:rank', 'xp:leaderboard:weekly', 'xp:leaderboard:monthly'] as const;
 
@@ -46,9 +47,9 @@ export function pointsGuide(config: XpConfig, appearance: WelcomeAppearance = {}
   const avatar = discordImage(appearance.avatarUrl);
   const embed: APIEmbed = {
     color: 0xa78bfa,
-    author: { name: config.enabled ? 'EVOMEME COMMUNITY' : 'PREVIEW · Evo Points aren’t being awarded yet', ...(icon ? { icon_url: icon } : {}) },
+    author: { name: 'EVOMEME COMMUNITY', ...(icon ? { icon_url: icon } : {}) },
     title: evoPointsTitle,
-    description: `${evoPointsIntro}\n\n**Ways to earn**\n${lines.length ? lines.join('\n') : 'Earning opportunities are being prepared. Check back for the community’s published rewards.'}\n\nCheck your progress and meet the community's top contributors below.`,
+    description: `${config.enabled ? '' : `**${pointsPaused}**\n\n`}${evoPointsIntro}\n\n**Ways to earn**\n${lines.length ? lines.join('\n') : 'Earning opportunities are being prepared. Check back for the community’s published rewards.'}${creation || issue || featured || event ? '\n\nReviewed contributions earn points after team approval.' : ''}\n\nCheck your progress and meet the community's top contributors below.`,
     ...(avatar ? { thumbnail: { url: avatar } } : {}),
     footer: { text: evoPointsFooter },
   };

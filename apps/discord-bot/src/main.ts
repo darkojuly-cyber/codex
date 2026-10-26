@@ -8,7 +8,7 @@ import { AppError, ctas } from '../../../packages/core/src/config.js';
 import { readEnv } from '../../../packages/core/src/env.js';
 import { showWelcome, providerErrorDetails } from './welcome.js';
 import { automaticWelcome } from './automatic-welcome.js';
-import { messageChannelScope } from './message-scope.js';
+import { scoreGuildMessage } from './message-scope.js';
 import { showPoints } from './points.js';
 import { pointsButtonIds } from './points-card.js';
 import { DiscordTransport } from '../../../packages/core/src/transport.js';
@@ -50,13 +50,13 @@ async function ticketModal(interaction: ChatInputCommandInteraction | ButtonInte
 async function handle(interaction: Interaction) {
   if (interaction.guildId !== env.DISCORD_GUILD_ID) return;
   if (interaction.isChatInputCommand()) {
-    if (['points', 'rank', 'leaderboard'].includes(interaction.commandName)) return showPoints(interaction, service.xp);
+    if (['points', 'rank', 'leaderboard'].includes(interaction.commandName)) return showPoints(interaction, service.xp, { channelId: env.EVO_POINTS_CHANNEL_ID });
     if (interaction.commandName === 'idea') return showIdea(interaction);
     if (interaction.commandName === 'welcome') return showWelcome(interaction, async () => (await service.current()).body);
     if (interaction.commandName === 'ticket') return ticketModal(interaction);
   }
   if (interaction.isButton()) {
-    if (pointsButtonIds.some(id => id === interaction.customId)) return showPoints(interaction, service.xp);
+    if (pointsButtonIds.some(id => id === interaction.customId)) return showPoints(interaction, service.xp, { channelId: env.EVO_POINTS_CHANNEL_ID });
     if (interaction.customId === 'idea:another') return showIdea(interaction);
     if (interaction.customId === 'ticket:new') return ticketModal(interaction);
     if (interaction.customId === 'links:current') {
@@ -106,8 +106,7 @@ function welcomeFailed(error: unknown) {
 client.on('guildMemberAdd', member => { void autoWelcome.joined(member).catch(welcomeFailed); });
 client.on('guildMemberUpdate', (oldMember, member) => { void autoWelcome.updated(oldMember, member).catch(welcomeFailed); });
 client.on('messageCreate', message => {
-  if (env.MESSAGE_CONTENT_INTENT !== 'true' || message.guildId !== env.DISCORD_GUILD_ID || message.author.bot || message.webhookId || message.system) return;
-  void messageChannelScope(message).then(scope => service.xp.message({ ...scope, user: message.author.id, messageId: message.id, channelId: message.channelId, content: message.content, occurredAt: message.createdAt, bot: false }))
+  void scoreGuildMessage(message, service.xp, { enabled: env.MESSAGE_CONTENT_INTENT === 'true', guildId: env.DISCORD_GUILD_ID!, pointsChannelId: env.EVO_POINTS_CHANNEL_ID })
     .catch(error => console.error(JSON.stringify({ event: 'xp.message_failed', ...providerErrorDetails(error) })));
 });
 client.on('guildMemberUpdate', (oldMember, member) => {

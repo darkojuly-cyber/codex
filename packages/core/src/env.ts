@@ -6,6 +6,7 @@ const schema = z.object({
   DATABASE_URL: z.string().optional(), DATABASE_URL_UNPOOLED: z.string().optional(), DATA_DIR: z.string().default('.data'),
   HOST: z.string().default('127.0.0.1'), PORT: z.coerce.number().default(3000),
   PUBLIC_ORIGIN: z.string().url().default('http://localhost:3000'),
+  EVO_POINTS_CHANNEL_ID: z.string().regex(/^\d{17,20}$/).optional(),
   DISCORD_TOKEN: z.string().optional(), DISCORD_GUILD_ID: z.string().optional(),
   DISCORD_CLIENT_ID: z.string().optional(), DISCORD_CLIENT_SECRET: z.string().optional(), DISCORD_REDIRECT_URI: z.string().optional(),
   STAFF_ROLE_IDS: z.string().default(''), MODERATOR_ROLE_IDS: z.string().default(''), SUPPORT_ROLE_IDS: z.string().default(''), SUPER_ADMIN_USER_IDS: z.string().default(''),

@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { MessageFlags, EmbedBuilder, type ButtonInteraction, type ChatInputCommandInteraction } from 'discord.js';
 import { showPoints } from '../apps/discord-bot/src/points.js';
-import { evoPointsIntro, evoPointsTitle, evoPointsFooter, pointsGuide, pointsButtonIds } from '../apps/discord-bot/src/points-card.js';
+import { evoPointsIntro, evoPointsTitle, evoPointsFooter, pointsGuide, pointsButtonIds, pointsPaused } from '../apps/discord-bot/src/points-card.js';
 import { xpDefaults } from '../packages/core/src/xp-config.js';
 import type { XpService } from '../packages/core/src/xp.js';
 
@@ -27,7 +27,9 @@ it('acknowledges before querying and displays the agreed member card with artwor
   expect(embed.description).toContain(evoPointsIntro);
   expect(embed.footer?.text).toBe(evoPointsFooter);
   expect(embed.thumbnail?.url).toBe(avatar);
-  expect(embed.author?.name).toContain('aren’t being awarded yet');
+  expect(embed.author?.name).toBe('EVOMEME COMMUNITY');
+  expect(embed.description).toContain(pointsPaused);
+  expect(embed.description).toContain('Reviewed contributions earn points after team approval.');
   expect(embed.description).toContain('First meaningful message: **10 points**, once per member.');
   expect(embed.description).toContain('Reviewed creations or creative tips: **5 points** · up to 20/day.');
   expect(embed.description).toContain('bug reports or suggestions: **3 points** · up to 18/day.');
@@ -117,4 +119,78 @@ it('shows first-message and chat rewards in category mode without channel bindin
   const description = pointsGuide(config).embeds[0].description;
   expect(description).toContain('First meaningful message: **10 points**');
   expect(description).toContain('Eligible chat: **2 points**');
+});
+
+let publicChannelNumber = 0;
+function inPointsChannel(command: ReturnType<typeof interaction> | ReturnType<typeof button>, channelId = String(823456789012345600n + BigInt(++publicChannelNumber))) {
+  Object.assign(command.value, { guildId: '923456789012345678', channelId });
+  return { ...command, channelId };
+}
+const account = { lifetimeXp: 30, ranks: { weekly: 2, monthly: 3, all_time: 4 }, enabled: true };
+
+it.each(['rules', 'rank', 'leaderboard'])('shares %s publicly only in the configured channel', async kind => {
+  const command = inPointsChannel(interaction(kind === 'rules' ? 'points' : kind));
+  const xp = { current: async () => ({ body: xpDefaults }), summary: async () => account,
+    leaderboard: async () => ({ entries: [], timezone: 'Asia/Shanghai', enabled: true }) } as unknown as XpService;
+  await showPoints(command.value, xp, { channelId: command.channelId });
+  expect(command.deferReply).toHaveBeenCalledWith({});
+  const payload = JSON.stringify(command.editReply.mock.calls[0][0]);
+  if (kind === 'rank') {
+    expect(payload).toContain('123456789012345678 · Evo Points');
+    expect(payload).not.toMatch(/Level|next level/);
+  }
+});
+
+it.each(['xp:rank', 'xp:leaderboard:weekly', 'xp:leaderboard:monthly', 'xp:rules'])('keeps shared card button %s private to the person clicking', async id => {
+  const command = inPointsChannel(button(id));
+  const summary = vi.fn(async () => account);
+  await showPoints(command.value, { summary, current: async () => ({ body: xpDefaults }), leaderboard: async () => ({ entries: [], timezone: 'Asia/Shanghai', enabled: true }) } as unknown as XpService, { channelId: command.channelId });
+  expect(command.deferReply).toHaveBeenCalledWith({ flags: MessageFlags.Ephemeral });
+  if (id === 'xp:rank') expect(summary).toHaveBeenCalledWith('123456789012345678');
+});
+
+it('keeps history, other channels and an unset points channel private', async () => {
+  for (const kind of ['history', 'other-channel', 'unset']) {
+    const command = inPointsChannel(interaction(kind === 'history' ? 'points' : 'rank', 'history'));
+    await showPoints(command.value, { history: async () => [], summary: async () => account } as unknown as XpService,
+      { channelId: kind === 'unset' ? undefined : kind === 'other-channel' ? '723456789012345678' : command.channelId });
+    expect(command.deferReply).toHaveBeenCalledWith({ flags: MessageFlags.Ephemeral });
+  }
+});
+
+it('limits concurrent public cards across members and commands; buttons bypass the cooldown and it expires', async () => {
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(1793000000000);
+  try {
+    const first = inPointsChannel(interaction('rank'));
+    const second = inPointsChannel(interaction('leaderboard'), first.channelId);
+    Object.assign(second.value, { user: { id: '223456789012345678' } });
+    const summary = vi.fn(async () => account);
+    const leaderboard = vi.fn(async () => ({ entries: [], timezone: 'Asia/Shanghai', enabled: true }));
+    const xp = { summary, leaderboard } as unknown as XpService;
+    await Promise.all([showPoints(first.value, xp, { channelId: first.channelId }), showPoints(second.value, xp, { channelId: first.channelId })]);
+    expect(first.deferReply).toHaveBeenCalledWith({});
+    expect(second.deferReply).toHaveBeenCalledWith({ flags: MessageFlags.Ephemeral });
+    expect(JSON.stringify(second.editReply.mock.calls[0][0])).toContain('60 seconds');
+    expect(leaderboard).not.toHaveBeenCalled();
+    const privateButton = inPointsChannel(button('xp:rank'), first.channelId);
+    await showPoints(privateButton.value, xp, { channelId: first.channelId });
+    expect(summary).toHaveBeenCalledTimes(2);
+    clock.mockReturnValue(1793000060000);
+    const later = inPointsChannel(interaction('leaderboard'), first.channelId);
+    await showPoints(later.value, xp, { channelId: first.channelId });
+    expect(later.deferReply).toHaveBeenCalledWith({});
+    expect(leaderboard).toHaveBeenCalledTimes(1);
+  } finally { clock.mockRestore(); }
+});
+
+it('uses one paused message across the rule card, personal points and empty boards', async () => {
+  const xp = { summary: async () => ({ ...account, enabled: false }), leaderboard: async () => ({ entries: [], timezone: 'Asia/Shanghai', enabled: false }) } as unknown as XpService;
+  const rank = button('xp:rank');
+  const board = button('xp:leaderboard:monthly');
+  await showPoints(rank.value, xp);
+  await showPoints(board.value, xp);
+  expect(pointsGuide(xpDefaults).embeds[0].description).toContain(pointsPaused);
+  for (const command of [rank, board]) expect(JSON.stringify(command.editReply.mock.calls[0][0])).toContain(pointsPaused);
+  expect(JSON.stringify(board.editReply.mock.calls[0][0])).not.toContain('as members begin earning');
+  expect(JSON.stringify(rank.editReply.mock.calls[0][0])).not.toMatch(/Level|next level/);
 });

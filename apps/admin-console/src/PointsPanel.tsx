@@ -3,7 +3,7 @@ import { xpDefaults, xpEvents, type XpConfig, type XpRule, type XpPeriod } from 
 import { translateError, formatDate, type Locale, type Values } from './i18n';
 
 type Row = Record<string, unknown>;
-type Revision = { id: string; version: number; status: string; body: XpConfig; reason: string; authored_by: string; approved_by: string | null };
+type Revision = { id: string; version: number; status: string; body: XpConfig; reason: string; authored_by: string; approved_by: string | null; base_version: number | null; edit_version: number };
 type Overview = { current: Revision; revisions: Revision[]; ledger: Row[]; boosts: Row[] };
 type Api = <T = Row>(path: string, method?: string, input?: unknown) => Promise<T>;
 export function PointsPanel({ api, active, refreshKey, locale, t }: { api: Api; active: boolean; refreshKey: number; locale: Locale; t: (key: string, values?: Values) => string }) {
@@ -12,6 +12,9 @@ export function PointsPanel({ api, active, refreshKey, locale, t }: { api: Api; 
   const [excludedCategories, setExcludedCategories] = useState('');
   const [channels, setChannels] = useState<Record<string, string>>({});
   const [reason, setReason] = useState('');
+  const [sourceRevision, setSourceRevision] = useState<Revision | null>(null);
+  const [baseline, setBaseline] = useState('');
+  const [baseVersion, setBaseVersion] = useState(0);
   const [addEvent, setAddEvent] = useState('chat');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
@@ -25,15 +28,20 @@ export function PointsPanel({ api, active, refreshKey, locale, t }: { api: Api; 
   const [reviewReason, setReviewReason] = useState('');
   const [period, setPeriod] = useState<XpPeriod>('weekly');
   const [board, setBoard] = useState<Row[]>([]);
-  function edit(value: XpConfig) {
+  function edit(revision: Revision, publishedVersion = overview?.current.version ?? revision.version) {
+    const value = revision.body;
+    const pending = ['DRAFT', 'APPROVED'].includes(revision.status);
+    const changeReason = pending ? revision.reason : '';
     setConfig(structuredClone(value));
+    setSourceRevision(revision); setBaseVersion(pending ? revision.base_version ?? 0 : publishedVersion);
+    setReason(changeReason); setBaseline(JSON.stringify({ config: value, reason: changeReason }));
     setExcludedCategories((value.excludedCategoryIds ?? []).join(', '));
     setChannels(Object.fromEntries(value.rules.map(rule => [rule.event, rule.channels.join(', ')])));
   }
   async function load(reset = false) {
     const result = await api<Overview>('/xp/config');
     setOverview(result);
-    if (reset || !config) edit(result.current.body);
+    if (reset || !config) edit(result.current, result.current.version);
   }
   useEffect(() => { if (active) void load().catch(e => setError((e as Error).message)); }, [active, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
   async function run(action: () => Promise<void>) {
@@ -45,18 +53,31 @@ export function PointsPanel({ api, active, refreshKey, locale, t }: { api: Api; 
     if (!config) return;
     setConfig({ ...config, rules: config.rules.map((rule, i) => i === index ? { ...rule, ...patch } : rule) });
   }
+  const editorValue = config ? { ...config, ...(config.excludedCategoryIds !== undefined ? { excludedCategoryIds: excludedCategories.split(',').map(v => v.trim()).filter(Boolean) } : {}), rules: config.rules.map(rule => ({ ...rule, channels: (channels[rule.event] ?? '').split(',').map(v => v.trim()).filter(Boolean) })) } : null;
+  const dirty = JSON.stringify({ config: editorValue, reason }) !== baseline;
+  const pending = !!sourceRevision && ['DRAFT', 'APPROVED'].includes(sourceRevision.status);
+  const stale = pending && (baseVersion !== overview?.current.version || sourceRevision.version <= (overview?.current.version ?? 0));
+  const latestSource = overview?.revisions.find(revision => revision.id === sourceRevision?.id);
+  const conflict = pending && !!latestSource && (latestSource.edit_version !== sourceRevision?.edit_version || latestSource.status !== sourceRevision?.status);
+  function mayReplace() { return !dirty || window.confirm(t('Discard unsaved XP edits?')); }
   if (!config || !overview) return <section><h2>{t('XP & Rewards')}</h2>{error ? <p role="alert">{translateError(locale, error)}</p> : <p>{t('Loading…')}</p>}</section>;
   return <>
     {error && <p className="error" role="alert">{translateError(locale, error)}</p>}
     {notice && <p className="notice" role="status">{t(notice)}</p>}
     <section><h2>{t('XP & Rewards')}</h2><p>{t('Published XP rules v{version}', { version: overview.current.version })} · <strong>{t(overview.current.body.enabled ? 'Scoring enabled' : 'Scoring disabled')}</strong></p><p className="muted">{t('Values below are proposals until reviewed and published. Changes apply to new events; previous awards stay in the ledger.')}</p>
       <p className="muted">{t('Create the agreed Evo Points proposal while keeping scoring paused. Existing published rules and past awards stay in place.')}</p>
-      <button disabled={busy} onClick={() => void run(async () => {
+      <fieldset disabled={busy} style={{ border: 0, padding: 0, minWidth: 0 }}>
+      <p><strong>{t('Editing source v{version}', { version: sourceRevision?.version ?? overview.current.version })}</strong> · {t(sourceRevision?.status ?? 'PUBLISHED')} · {baseVersion > 0 ? t('Based on published v{version}', { version: baseVersion }) : t('Unknown base version (legacy draft)')}</p>
+      <p role="note">{t(dirty ? 'Unsaved changes — save this draft before approving or publishing.' : pending ? 'Saved draft — approval and publication use this exact saved content.' : 'Editing published rules creates a new draft; live rules change only after publication.')}</p>
+      {stale && <p className="error">{t('This draft is outdated. Copy it as a new draft based on the current published rules.')}</p>}
+      {!pending && baseVersion !== overview.current.version && <p className="error">{t('Published rules changed. Load the current published version before creating a draft.')}</p>}
+      {conflict && <p className="error">{t('This draft changed elsewhere. Load it again before continuing; your local edits are still here.')}</p>}
+      <button disabled={busy} onClick={() => { if (!mayReplace()) return; void run(async () => {
         const revision = await api<Revision>('/xp/proposal', 'POST', {});
-        edit(revision.body); setReason(revision.reason); await load();
+        edit(revision); await load();
         setNotice('Evo Points draft created. Review, approve and publish it below.');
-      })}>{t('Create Evo Points draft')}</button>
-      <label className="checkbox"><input type="checkbox" checked={config.enabled} onChange={e => setConfig({ ...config, enabled: e.target.checked })}/>{t('Enable XP scoring')}</label>
+      }); }}>{t('Create Evo Points draft')}</button>
+      <label className="checkbox"><input type="checkbox" checked={config.enabled} onChange={e => setConfig({ ...config, enabled: e.target.checked })}/>{t('Enable XP scoring')}</label><p className="muted">{t('This switch applies to the draft only until publication.')}</p>
       <div className="form-grid"><label>{t('XP timezone')}<input value={config.timezone} onChange={e => setConfig({ ...config, timezone: e.target.value })}/></label>
       <label>{t('Minimum meaningful characters')}<input type="number" min={5} max={200} value={config.minimumCharacters} onChange={e => setConfig({ ...config, minimumCharacters: Number(e.target.value) })}/></label>
       <label>{t('Level thresholds (comma separated, starts at 0)')}<input value={config.levelThresholds.join(',')} onChange={e => setConfig({ ...config, levelThresholds: e.target.value.split(',').map(Number) })}/></label></div>
@@ -70,17 +91,37 @@ export function PointsPanel({ api, active, refreshKey, locale, t }: { api: Api; 
       <button disabled={busy} onClick={() => setConfig({ ...config, rules: config.rules.filter((_, i) => i !== index) })}>{t('Remove rule')}</button></details>)}</div>
       <label>{t('Rule to add')}<select value={addEvent} onChange={e => setAddEvent(e.target.value)}>{xpEvents.map(value => <option key={value} value={value}>{t(`xp.event.${value}`)}</option>)}</select></label><button disabled={busy || config.rules.some(rule => rule.event === addEvent)} onClick={() => { const rule = structuredClone(xpDefaults.rules.find(rule => rule.event === addEvent)!); setConfig({ ...config, rules: [...config.rules, rule] }); setChannels({ ...channels, [rule.event]: '' }); }}>{t('Add rule')}</button>
       <label>{t('Reason for rule change')}<textarea minLength={5} maxLength={500} value={reason} onChange={e => setReason(e.target.value)}/></label>
-      <button className="primary" disabled={busy || reason.trim().length < 5} onClick={() => void run(async () => {
-        await api('/xp/drafts', 'POST', { config: { ...config, ...(config.excludedCategoryIds !== undefined ? { excludedCategoryIds: excludedCategories.split(',').map(v => v.trim()).filter(Boolean) } : {}), rules: config.rules.map(rule => ({ ...rule, channels: (channels[rule.event] ?? '').split(',').map(v => v.trim()).filter(Boolean) })) }, reason });
-        await load(); setNotice('XP draft saved. Review, approve and publish it below.');
+      <p className="muted">{t('A change reason of at least 5 characters is required. Saving an approved draft removes its approval.')}</p>
+      <button className="primary" disabled={busy || !dirty || stale || conflict || baseVersion !== overview.current.version || reason.trim().length < 5} onClick={() => void run(async () => {
+        const revision = pending && sourceRevision
+          ? await api<Revision>(`/xp/${sourceRevision.id}/draft`, 'PUT', { config: editorValue, reason, expectedVersion: baseVersion, expectedEditVersion: sourceRevision.edit_version })
+          : await api<Revision>('/xp/drafts', 'POST', { config: editorValue, reason, expectedVersion: baseVersion });
+        edit(revision); await load(); setNotice('XP draft saved. Review, approve and publish it below.');
       })}>{t('Save XP rules draft')}</button>
+      {pending && sourceRevision && !stale && <>
+        {sourceRevision.status === 'DRAFT' && <button disabled={busy || dirty || conflict} onClick={() => void run(async () => {
+          const revision = await api<Revision>(`/xp/${sourceRevision.id}/approve`, 'POST', { expectedEditVersion: sourceRevision.edit_version });
+          edit(revision); await load(); setNotice('XP rules approved. Publication is still required.');
+        })}>{t('Approve XP rules')}</button>}
+        {sourceRevision.status === 'APPROVED' && <button className="primary" disabled={busy || dirty || conflict} onClick={() => {
+          if (window.confirm(t('Publish saved XP rules v{version}? Only the saved draft will go live.', { version: sourceRevision.version }))) void run(async () => {
+            await api(`/xp/${sourceRevision.id}/publish`, 'POST', { expectedVersion: baseVersion, expectedEditVersion: sourceRevision.edit_version, confirm: true });
+            await load(true); setNotice('XP rules published.');
+          });
+        }}>{t('Publish XP rules')}</button>}
+      </>}
+      </fieldset>
     </section>
-    <section><h2>{t('XP rule history')}</h2>{overview.revisions.map(revision => <div className="revision" key={revision.id}><div><strong>v{revision.version}</strong> <span className="badge">{t(revision.status)}</span><p>{revision.reason}</p><small>{t('Author')}: {revision.authored_by} · {t('Approved by')}: {revision.approved_by ?? '—'}</small></div><div>
-      <button disabled={busy} onClick={() => edit(revision.body)}>{t('Load into editor')}</button>
-      {revision.status === 'DRAFT' && <button disabled={busy} onClick={() => void run(async () => { await api(`/xp/${revision.id}/approve`, 'POST', {}); await load(); setNotice('XP rules approved. Publication is still required.'); })}>{t('Approve XP rules')}</button>}
-      {revision.status === 'APPROVED' && <button className="primary" disabled={busy} onClick={() => { if (window.confirm(t('Publish these XP rules? New events will use this version.'))) void run(async () => { await api(`/xp/${revision.id}/publish`, 'POST', { expectedVersion: overview.current.version, confirm: true }); await load(true); setNotice('XP rules published.'); }); }}>{t('Publish XP rules')}</button>}
-      {revision.status === 'SUPERSEDED' && <button disabled={busy} onClick={() => void run(async () => { await api('/xp/drafts', 'POST', { config: revision.body, reason: `Restore rules v${revision.version} as a new draft` }); await load(); setNotice('XP draft saved. Review, approve and publish it below.'); })}>{t('Restore as draft')}</button>}
-    </div></div>)}</section>
+    <section><h2>{t('XP rule history')}</h2>{overview.revisions.map(revision => {
+      const outdated = ['DRAFT','APPROVED'].includes(revision.status) && (revision.base_version !== overview.current.version || revision.version <= overview.current.version);
+      return <div className="revision" key={revision.id}><div><strong>v{revision.version}</strong> <span className="badge">{t(outdated ? 'Outdated draft' : revision.status)}</span>{sourceRevision?.id === revision.id && <span className="badge">{t('In editor')}</span>}<p>{revision.reason}</p><small>{t('Author')}: {revision.authored_by} · {t('Approved by')}: {revision.approved_by ?? '—'}</small></div><div>
+        <button disabled={busy} onClick={() => { if (mayReplace()) edit(revision); }}>{t('Load into editor')}</button>
+        {(outdated || revision.status === 'SUPERSEDED') && <button disabled={busy} onClick={() => { if (!mayReplace()) return; void run(async () => {
+          const copy = await api<Revision>('/xp/drafts', 'POST', { config: revision.body, reason: `Restore rules v${revision.version} as a new draft`, expectedVersion: overview.current.version });
+          edit(copy); await load(); setNotice('XP draft saved. Review, approve and publish it below.');
+        }); }}>{t('Restore as draft')}</button>}
+      </div></div>;
+    })}</section>
     <div className="two-col"><section><h2>{t('Manual XP adjustment')}</h2><p className="muted">{t('Corrections create signed ledger entries. A reason is required; balances cannot become negative.')}</p><form onSubmit={e => { e.preventDefault(); if (!window.confirm(t('Record this XP adjustment?'))) return; void run(async () => { await api('/xp/adjustments', 'POST', { userId: target, amount, reason: adjustReason, requestKey }); await load(); setRequestKey(crypto.randomUUID()); setAdjustReason(''); setNotice('XP adjustment recorded.'); }); }}><label>{t('Discord user ID')}<input required pattern="[0-9]{17,20}" value={target} onChange={e => setTarget(e.target.value)}/></label><label>{t('XP amount (negative to deduct)')}<input required type="number" min={-10000} max={10000} value={amount} onChange={e => setAmount(Number(e.target.value))}/></label><label>{t('Reason')}<textarea required minLength={5} maxLength={500} value={adjustReason} onChange={e => setAdjustReason(e.target.value)}/></label><button disabled={busy || !overview.current.body.enabled}>{t('Record adjustment')}</button></form></section>
     <section><h2>{t('Reviewed contribution')}</h2><p className="muted">{t('Use one stable source ID per reviewed issue, creation or event. Replaying it does not award twice.')}</p><form onSubmit={e => { e.preventDefault(); void run(async () => { const result = await api('/xp/contributions', 'POST', { userId: target, event, source, reason: reviewReason }); if (!result.awarded) { setError(String(result.reason)); return; } await load(); setNotice('Contribution XP awarded.'); }); }}><label>{t('Discord user ID')}<input required pattern="[0-9]{17,20}" value={target} onChange={e => setTarget(e.target.value)}/></label><label>{t('Contribution type')}<select value={event} onChange={e => setEvent(e.target.value)}>{['creation','confirmed_issue','featured','event'].map(value => <option key={value} value={value}>{t(`xp.event.${value}`)}</option>)}</select></label><label>{t('Unique source ID')}<input required pattern="[a-zA-Z0-9:_-]{5,120}" value={source} onChange={e => setSource(e.target.value)}/></label><label>{t('Review reason')}<textarea required minLength={5} maxLength={500} value={reviewReason} onChange={e => setReviewReason(e.target.value)}/></label><button disabled={busy || !overview.current.body.enabled}>{t('Award reviewed contribution')}</button></form></section></div>
     <section><h2>{t('XP leaderboard')}</h2><label>{t('Period')}<select value={period} onChange={e => setPeriod(e.target.value as XpPeriod)}>{['weekly','monthly','all_time'].map(value => <option key={value} value={value}>{t(value)}</option>)}</select></label><button disabled={busy} onClick={() => void run(async () => { const result = await api<{ entries: Row[] }>(`/xp/leaderboard?period=${period}`); setBoard(result.entries); })}>{t('Load leaderboard')}</button>{board.map(row => <p key={String(row.user_id)}>#{String(row.rank)} · {String(row.user_id)} · {String(row.xp)} XP</p>)}</section>

@@ -5,7 +5,7 @@ import { AppError, type Actor } from './config.js';
 import { xpConfigSchema, xpDefaults, evoPointsProposal, periodStart, type XpConfig, type XpEvent, type XpRule, type XpPeriod } from './xp-config.js';
 
 type Row = Record<string, unknown>;
-export type XpRevision = { id: string; version: number; status: string; body: XpConfig; published_at: Date | string | null };
+export type XpRevision = { id: string; version: number; status: string; body: XpConfig; published_at: Date | string | null; base_version: number | null; edit_version: number };
 type Award = { user: string; event: XpEvent; source: string; occurredAt: Date; actor: string; reason: string; channel?: string; hash?: string };
 const userId = z.string().regex(/^\d{17,20}$/);
 const sourceId = z.string().regex(/^[a-zA-Z0-9:_-]{5,120}$/);
@@ -38,9 +38,12 @@ export class XpService {
   }
   async draft(actor: Actor, input: unknown) {
     this.requireManager(actor);
-    const data = z.object({ config: xpConfigSchema, reason: z.string().trim().min(5).max(500) }).strict().parse(input);
+    const data = z.object({ config: xpConfigSchema, reason: z.string().trim().min(5).max(500), expectedVersion: z.number().int().positive().optional() }).strict().parse(input);
     return this.db.transaction(async tx => {
-      const [row] = await tx.query("INSERT INTO xp_rule_revision(id,status,body,reason,authored_by) VALUES($1,'DRAFT',$2,$3,$4) RETURNING *", [randomUUID(), JSON.stringify(data.config), data.reason, actor.id]);
+      await tx.query('LOCK TABLE xp_rule_revision IN EXCLUSIVE MODE');
+      const current = await this.current(tx);
+      if (data.expectedVersion !== undefined && data.expectedVersion !== current.version) throw new AppError(409, 'XP_CONFIG_CHANGED');
+      const [row] = await tx.query("INSERT INTO xp_rule_revision(id,status,body,reason,authored_by,base_version) VALUES($1,'DRAFT',$2,$3,$4,$5) RETURNING *", [randomUUID(), JSON.stringify(data.config), data.reason, actor.id, current.version]);
       await this.audit(tx, actor.id, 'xp.rules_drafted', String(row.id));
       return row;
     });
@@ -48,18 +51,43 @@ export class XpService {
   async proposal(actor: Actor) {
     this.requireManager(actor);
     const current = await this.current();
-    return this.draft(actor, { config: evoPointsProposal(current.body), reason: 'Evo Points community preset — review before publication' });
+    return this.draft(actor, { config: evoPointsProposal(current.body), reason: 'Evo Points community preset — review before publication', expectedVersion: current.version });
   }
-  async approve(actor: Actor, id: string) {
+  private freshDraft(row: Row, current: XpRevision) {
+    if (Number(row.base_version) !== current.version || Number(row.version) <= current.version) throw new AppError(409, 'XP_DRAFT_STALE');
+  }
+  async updateDraft(actor: Actor, id: string, input: unknown) {
+    this.requireManager(actor);
+    const data = z.object({ config: xpConfigSchema, reason: z.string().trim().min(5).max(500), expectedVersion: z.number().int().positive(), expectedEditVersion: z.number().int().positive() }).strict().parse(input);
+    return this.db.transaction(async tx => {
+      await tx.query('LOCK TABLE xp_rule_revision IN EXCLUSIVE MODE');
+      const current = await this.current(tx);
+      if (current.version !== data.expectedVersion) throw new AppError(409, 'XP_CONFIG_CHANGED');
+      const [old] = await tx.query("SELECT * FROM xp_rule_revision WHERE id=$1 AND status IN ('DRAFT','APPROVED')", [id]);
+      if (!old) throw new AppError(409, 'XP_DRAFT_NOT_FOUND');
+      this.freshDraft(old, current);
+      if (Number(old.edit_version) !== data.expectedEditVersion) throw new AppError(409, 'XP_DRAFT_CHANGED');
+      const [row] = await tx.query("UPDATE xp_rule_revision SET body=$2,reason=$3,status='DRAFT',approved_by=NULL,approved_at=NULL,edit_version=edit_version+1 WHERE id=$1 RETURNING *", [id, JSON.stringify(data.config), data.reason]);
+      await this.audit(tx, actor.id, 'xp.rules_updated', id, { editVersion: row.edit_version, approvalReset: old.status === 'APPROVED' });
+      return row;
+    });
+  }
+  async approve(actor: Actor, id: string, expectedEditVersion?: number) {
     this.requireManager(actor);
     return this.db.transaction(async tx => {
+      await tx.query('LOCK TABLE xp_rule_revision IN EXCLUSIVE MODE');
+      const current = await this.current(tx);
+      const [draft] = await tx.query("SELECT * FROM xp_rule_revision WHERE id=$1 AND status='DRAFT'", [id]);
+      if (!draft) throw new AppError(409, 'XP_DRAFT_NOT_FOUND');
+      this.freshDraft(draft, current);
+      if (expectedEditVersion !== undefined && Number(draft.edit_version) !== expectedEditVersion) throw new AppError(409, 'XP_DRAFT_CHANGED');
       const [row] = await tx.query("UPDATE xp_rule_revision SET status='APPROVED',approved_by=$2,approved_at=now() WHERE id=$1 AND status='DRAFT' RETURNING *", [id, actor.id]);
       if (!row) throw new AppError(409, 'XP_DRAFT_NOT_FOUND');
       await this.audit(tx, actor.id, 'xp.rules_approved', id);
       return row;
     });
   }
-  async publish(actor: Actor, id: string, expectedVersion: number) {
+  async publish(actor: Actor, id: string, expectedVersion: number, expectedEditVersion?: number) {
     this.requireManager(actor);
     return this.db.transaction(async tx => {
       // Same lock order as awards. A changed rule never races a half-written award.
@@ -69,6 +97,8 @@ export class XpService {
       if (current.version !== expectedVersion) throw new AppError(409, 'XP_CONFIG_CHANGED');
       const [row] = await tx.query("SELECT * FROM xp_rule_revision WHERE id=$1 AND status='APPROVED'", [id]);
       if (!row) throw new AppError(409, 'XP_APPROVAL_REQUIRED');
+      this.freshDraft(row, current);
+      if (expectedEditVersion !== undefined && Number(row.edit_version) !== expectedEditVersion) throw new AppError(409, 'XP_DRAFT_CHANGED');
       xpConfigSchema.parse(row.body);
       await tx.query("UPDATE xp_rule_revision SET status='SUPERSEDED' WHERE status='PUBLISHED'");
       const [published] = await tx.query("UPDATE xp_rule_revision SET status='PUBLISHED',published_by=$2,published_at=now() WHERE id=$1 RETURNING *", [id, actor.id]);

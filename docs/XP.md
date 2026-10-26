@@ -75,9 +75,10 @@ $env:MESSAGE_CONTENT_INTENT = "true"
 | GET `/api/xp/history?page=1` | 当前员工本人最近流水 |
 | GET `/api/xp/leaderboard?period=weekly&page=1` | 每页 10 人榜单 |
 | POST `/api/xp/proposal` | 按确认分值生成规则草稿，保留当前频道/时区/等级门槛及有效时间，总开关关闭 |
-| POST `/api/xp/drafts` | `{config,reason}` 保存草稿 |
-| POST `/api/xp/:id/approve` | 审核草稿 |
-| POST `/api/xp/:id/publish` | `{expectedVersion,confirm:true}` 乐观锁发布 |
+| POST `/api/xp/drafts` | `{config,reason,expectedVersion}` 基于当前已发布版本创建草稿 |
+| PUT `/api/xp/:id/draft` | `{config,reason,expectedVersion,expectedEditVersion}` 更新同一草稿，撤销原审核 |
+| POST `/api/xp/:id/approve` | `{expectedEditVersion}` 审核已保存的精确编辑版本 |
+| POST `/api/xp/:id/publish` | `{expectedVersion,expectedEditVersion,confirm:true}` 校验基线与编辑版本后发布 |
 | POST `/api/xp/adjustments` | `{userId,amount,requestKey,reason}` 加扣分；requestKey 为本次操作 UUID，重试必须复用 |
 | POST `/api/xp/contributions` | `{userId,event,source,reason}` 审核贡献 |
 
@@ -113,3 +114,14 @@ $env:MESSAGE_CONTENT_INTENT = "true"
 
 
 周榜按配置时区的每周一 00:00 至下周一 00:00（不包含）统计；月榜按每月 1 日 00:00 至下月 1 日 00:00（不包含）统计。展示当前周期截至查询时刻的积分净额，包括该周期的加分和扣分，以账本 `occurred_at` 为准。默认时区为 Asia/Shanghai，可在积分规则中修改。总榜累计全部历史积分，周/月切换不会清空总积分；净积分为正的成员才上榜，同分并列（1、1、2）。个人排名和榜单使用相同的查询时间边界。规则卡与榜单底部均标明周期或时区。
+
+
+### 积分规则草稿与发布版本
+
+顶部“已发布积分规则”显示当前实际计分版本；编辑区另外显示来源版本、草稿基线及是否存在未保存修改。编辑开关只影响草稿，保存、审核、发布后才影响 Bot。修改原因至少填写 5 个字符；没有修改时不必重复保存。
+
+“生成 Evo Points 规则草稿”创建并选中一份已保存的草稿。继续修改后点击“保存积分规则草稿”会更新同一版本，不会再新增一版；审核与发布按钮只操作当前选中的已保存草稿。未保存修改时不能审核或发布。审核后再保存修改会撤销原审核，必须重新审核。切换历史版本或生成模板时，如有未保存内容会先提示确认；普通切换后台标签不会丢失编辑。
+
+每份新草稿记录创建时的已发布版本。发布了其他规则后，该草稿即过期，无论其编号比当前版本大还是小，都不能再直接审核、更新或发布。可以使用“还原为草稿”，明确复制成基于当前版本的新草稿后重新检查。已发布版本始终递增。并发编辑会校验编辑计数，拒绝覆盖其他管理员保存的内容。
+
+更新后的 API 启动时自动执行 `003_xp_revision_workflow.sql`，添加版本基线与编辑计数。已有已发布规则与积分账本保持原样；旧程序创建的未发布草稿因基线未知，会显示“已过期草稿”，内容仍保留，可复制为新草稿。升级时先 Stop 停止旧程序，覆盖更新文件（保留 `.env.local`、`.env`、`.data`），再 Start，同时刷新后台页面，避免旧页面提交缺少编辑版本的请求。

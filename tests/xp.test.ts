@@ -98,6 +98,63 @@ describe('XP rules, ledger and fairness', () => {
     expect((await xp.summary(user)).lifetimeXp).toBe(10);
   });
 
+  it('updates the same draft, invalidates approval on edits and publishes exactly the saved content', async () => {
+    const draft = await xp.proposal(admin);
+    const config = { ...(draft.body as XpConfig), enabled: true, excludedCategoryIds: [] };
+    const first = await xp.updateDraft(admin, String(draft.id), { config, reason: 'Enable the reviewed chat rules', expectedVersion: 1, expectedEditVersion: 1 });
+    expect(first.id).toBe(draft.id); expect(first.version).toBe(draft.version);
+    expect((await db.query('SELECT * FROM xp_rule_revision')).length).toBe(2);
+    expect((await xp.current()).body.enabled).toBe(false);
+    await xp.approve(admin, String(draft.id), 2);
+    const changed = structuredClone(config); changed.rules.find(r => r.event === 'chat')!.points = 3;
+    const updated = await xp.updateDraft(admin, String(draft.id), { config: changed, reason: 'Revise chat value after review', expectedVersion: 1, expectedEditVersion: 2 });
+    expect(updated).toMatchObject({ status: 'DRAFT', approved_by: null, approved_at: null, edit_version: 3 });
+    await expect(xp.publish(admin, String(draft.id), 1, 2)).rejects.toMatchObject({ code: 'XP_APPROVAL_REQUIRED' });
+    await expect(xp.approve(admin, String(draft.id), 2)).rejects.toMatchObject({ code: 'XP_DRAFT_CHANGED' });
+    await xp.approve(admin, String(draft.id), 3);
+    await expect(xp.publish(admin, String(draft.id), 1, 2)).rejects.toMatchObject({ code: 'XP_DRAFT_CHANGED' });
+    await xp.publish(admin, String(draft.id), 1, 3);
+    expect((await xp.current()).body).toEqual(changed);
+    expect((await xp.message({ ...message('A useful first contribution after publishing'), categoryId: null, announcement: false })).amount).toBe(10);
+  });
+
+  it.each(['older','newer'])('blocks a stale %s approved revision even with the latest published version supplied', async choice => {
+    const a = await xp.proposal(admin);
+    const b = await xp.proposal(admin);
+    await xp.approve(admin, String(a.id), 1); await xp.approve(admin, String(b.id), 1);
+    const publish = choice === 'older' ? b : a;
+    const stale = choice === 'older' ? a : b;
+    await xp.publish(admin, String(publish.id), 1, 1);
+    await expect(xp.publish(admin, String(stale.id), Number(publish.version), 1)).rejects.toMatchObject({ code: 'XP_DRAFT_STALE' });
+    await expect(xp.updateDraft(admin, String(stale.id), { config: stale.body, reason: 'Try saving an outdated draft', expectedVersion: publish.version, expectedEditVersion: 1 })).rejects.toMatchObject({ code: 'XP_DRAFT_STALE' });
+    const copy = await xp.draft(admin, { config: stale.body, reason: 'Explicitly restore reviewed historical rules', expectedVersion: publish.version });
+    expect(copy.base_version).toBe(publish.version);
+    await xp.approve(admin, String(copy.id), 1);
+    await xp.publish(admin, String(copy.id), Number(publish.version), 1);
+    expect((await xp.current()).version).toBeGreaterThan(Number(publish.version));
+  });
+
+  it('rejects stale approval and concurrent edits without overwriting another editor', async () => {
+    const draft = await xp.proposal(admin);
+    const save = (reason: string) => xp.updateDraft(admin, String(draft.id), { config: draft.body, reason, expectedVersion: 1, expectedEditVersion: 1 });
+    const results = await Promise.allSettled([save('First editor revision'), save('Second editor revision')]);
+    expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(r => r.status === 'rejected')).toHaveLength(1);
+    expect((results.find(r => r.status === 'rejected') as PromiseRejectedResult).reason.code).toBe('XP_DRAFT_CHANGED');
+    await expect(xp.approve(admin, String(draft.id), 1)).rejects.toMatchObject({ code: 'XP_DRAFT_CHANGED' });
+    await expect(xp.updateDraft(mod, String(draft.id), {})).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(xp.draft(admin, { config: draft.body, reason: 'Save based on a stale published version', expectedVersion: 99 })).rejects.toMatchObject({ code: 'XP_CONFIG_CHANGED' });
+    expect((await xp.current()).version).toBe(1);
+  });
+
+  it('keeps legacy pending content but requires an explicit new draft before approval', async () => {
+    const draft = await xp.proposal(admin);
+    await db.query('UPDATE xp_rule_revision SET base_version=NULL WHERE id=$1', [draft.id]);
+    await expect(xp.approve(admin, String(draft.id), 1)).rejects.toMatchObject({ code: 'XP_DRAFT_STALE' });
+    expect((await db.query('SELECT body FROM xp_rule_revision WHERE id=$1', [draft.id]))[0].body).toEqual(draft.body);
+    expect((await xp.current()).version).toBe(1);
+  });
+
   it('starts disabled and requires review, permission and an unchanged published version', async () => {
     expect((await xp.current()).body.enabled).toBe(false);
     const config = structuredClone(xpDefaults); config.enabled = true;

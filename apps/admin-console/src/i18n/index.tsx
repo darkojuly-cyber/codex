@@ -36,6 +36,9 @@ export function translate(locale: Locale, key: string, values: Values = {}) {
 }
 
 const errorCopy: Record<string, string> = {
+  "XP_DRAFT_STALE": "此积分草稿已过期，不能直接发布。请复制为基于当前版本的新草稿后重新审核。",
+  "XP_DRAFT_CHANGED": "此积分草稿已被修改，请载入最新草稿后重新审核。你的本地编辑不会自动覆盖它。",
+
   "XP_DISABLED": "积分计分已关闭，请先审核并发布启用规则。",
   "XP_NOT_INITIALIZED": "积分配置尚未初始化。",
   "XP_DRAFT_NOT_FOUND": "该积分草稿不存在或已审核。",

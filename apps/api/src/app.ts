@@ -84,10 +84,14 @@ export async function createApp(service: CommunityService, env: Env) {
   });
   app.post('/api/xp/drafts', request => service.xp.draft(request.actor, request.body));
   app.post('/api/xp/proposal', request => service.xp.proposal(request.actor));
-  app.post('/api/xp/:id/approve', request => service.xp.approve(request.actor, paramId(request)));
+  app.put('/api/xp/:id/draft', request => service.xp.updateDraft(request.actor, paramId(request), request.body));
+  app.post('/api/xp/:id/approve', request => {
+    const { expectedEditVersion } = z.object({ expectedEditVersion: z.number().int().positive() }).strict().parse(request.body ?? {});
+    return service.xp.approve(request.actor, paramId(request), expectedEditVersion);
+  });
   app.post('/api/xp/:id/publish', request => {
-    const { expectedVersion } = z.object({ expectedVersion: z.number().int().positive(), confirm: z.literal(true) }).strict().parse(request.body);
-    return service.xp.publish(request.actor, paramId(request), expectedVersion);
+    const { expectedVersion, expectedEditVersion } = z.object({ expectedVersion: z.number().int().positive(), expectedEditVersion: z.number().int().positive(), confirm: z.literal(true) }).strict().parse(request.body);
+    return service.xp.publish(request.actor, paramId(request), expectedVersion, expectedEditVersion);
   });
   async function checkXpTarget(actor: Parameters<typeof service.xp.requireManager>[0], body: unknown) {
     service.xp.requireManager(actor);

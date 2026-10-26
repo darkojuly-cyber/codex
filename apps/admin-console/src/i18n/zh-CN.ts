@@ -1,5 +1,21 @@
 /** Console copy only. User-authored content, Discord templates and protocol values stay intact. */
 export const zhCN: Record<string, string> = {
+  "Discard unsaved XP edits?": "放弃尚未保存的积分规则修改，载入另一版本？",
+  "Editing source v{version}": "正在编辑来源版本 v{version}",
+  "Based on published v{version}": "基于已发布 v{version}",
+  "Unknown base version (legacy draft)": "旧版草稿，基线版本未知",
+  "Unsaved changes — save this draft before approving or publishing.": "有未保存的修改，请先保存当前草稿，再审核或发布。",
+  "Saved draft — approval and publication use this exact saved content.": "当前草稿已保存，审核和发布将使用这份已保存的内容。",
+  "Editing published rules creates a new draft; live rules change only after publication.": "修改已发布规则会创建新草稿；只有发布后才影响实际计分。",
+  "This draft is outdated. Copy it as a new draft based on the current published rules.": "此草稿已过期，不能直接审核或发布。请点击“还原为草稿”，复制成基于当前版本的新草稿。",
+  "This draft changed elsewhere. Load it again before continuing; your local edits are still here.": "此草稿已在其他页面发生变化。你的本地修改仍保留，请重新载入最新草稿后继续。",
+  "A change reason of at least 5 characters is required. Saving an approved draft removes its approval.": "修改原因至少填写 5 个字符。保存已批准草稿的修改后，需要重新审核。",
+  "Publish saved XP rules v{version}? Only the saved draft will go live.": "确认发布已保存的积分规则 v{version}？生效的将是这份已保存草稿。",
+  "Outdated draft": "已过期草稿",
+  "In editor": "当前编辑版本",
+  "Published rules changed. Load the current published version before creating a draft.": "已发布规则已更新。请从历史列表载入当前已发布版本，再创建草稿。",
+  "This switch applies to the draft only until publication.": "此开关仅修改编辑中的草稿，发布后才生效。",
+
   'Chat scores across the server except excluded categories and announcement channels. Threads inherit their parent category. Message Content Intent is required. Official discussion bonuses are unused in category mode.': '聊天在全服计分，排除指定类别和公告频道；讨论串沿用上级频道类别。需要开启 Message Content Intent。类别排除模式不使用官方讨论额外规则。',
   'Published legacy rules still use channel lists until a category exclusion draft is published.': '当前旧版规则仍使用频道名单；发布类别排除草稿后才会切换。',
   'Use EvoMeme exclusions: OFFICIAL, EVENTS, STAFF ONLY': '排除公告、活动、工作人员类别（OFFICIAL / EVENTS / STAFF ONLY）',

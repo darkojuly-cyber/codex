@@ -180,6 +180,32 @@ describe('XP rules, ledger and fairness', () => {
     expect(ledger.map(row => Number(row.amount)).sort((a,b) => a-b)).toEqual([-30, 100]);
     expect((await db.query("SELECT actor_id FROM audit_log WHERE action='xp.adjusted' AND entity_id=$1", [ledger[0].id]))[0].actor_id).toBe(admin.id);
   });
+  it('keeps personal and public ranks aligned across Shanghai week/month boundaries, corrections and future entries', async () => {
+    await enable();
+    const put = async (target: string, amount: number, date: string) => {
+      const entry = await xp.adjust(admin, { userId: target, amount, requestKey: randomUUID(), reason: 'Calendar ranking boundary fixture' });
+      await db.query('UPDATE xp_ledger SET occurred_at=$1 WHERE id=$2', [date, entry.id]);
+    };
+    await put(user, 40, '2026-10-31T15:59:59Z'); // October, before Shanghai midnight
+    await put(user, 20, '2026-10-31T16:00:00Z'); // November 1, still previous week
+    await put(user, 10, '2026-11-01T16:00:00Z'); // Monday midnight starts new week
+    await put(user, 5, '2026-11-01T17:00:00Z');
+    await put(user, -3, '2026-11-01T18:00:00Z');
+    await put(user, 100, '2026-11-02T00:00:01Z'); // future entries never count early
+    await put(other, 50, '2026-11-01T19:00:00Z');
+    await put('723456789012345678', 12, '2026-11-01T20:00:00Z');
+    const now = new Date('2026-11-02T00:00:00Z');
+    const summary = await xp.summary(user, now);
+    expect(summary.lifetimeXp).toBe(72);
+    expect(summary.ranks).toEqual({ weekly: 2, monthly: 2, all_time: 1 });
+    for (const [period, expected] of [['weekly',12], ['monthly',32], ['all_time',72]] as const) {
+      const board = await xp.leaderboard(period, 1, now);
+      expect(board.entries.find(entry => entry.user_id === user)).toMatchObject({ xp: expected, rank: summary.ranks[period] });
+    }
+    expect((await xp.leaderboard('weekly', 1, now)).entries.map(entry => entry.rank)).toEqual([1,2,2]);
+    expect((await xp.leaderboard('weekly', 1, new Date('2026-11-01T16:00:00Z'))).entries.find(entry => entry.user_id === user)?.xp).toBe(10);
+  });
+
   it('returns deterministic tied ranks, calendar periods, pagination and only the member’s own history', async () => {
     await enable();
     for (const target of [user, other]) await xp.adjust(admin, { userId: target, amount: 50, requestKey: randomUUID(), reason: 'A reviewed contribution for ranking' });

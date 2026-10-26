@@ -84,10 +84,10 @@ it.each(['weekly','monthly'] as const)('routes the %s board button to current da
 
 it('routes My Points to the pressing member’s own account', async () => {
   const command = button('xp:rank');
-  const summary = vi.fn(async () => ({ lifetimeXp: 30, level: 1, nextLevelXp: 100, ranks: { weekly: 2, monthly: 3, all_time: 4 }, enabled: true }));
+  const summary = vi.fn(async () => ({ timezone: 'Asia/Shanghai', lifetimeXp: 30, level: 1, nextLevelXp: 100, ranks: { weekly: 2, monthly: 3, all_time: 4 }, enabled: true }));
   await showPoints(command.value, { summary } as unknown as XpService);
   expect(summary).toHaveBeenCalledWith('123456789012345678');
-  expect(JSON.stringify(command.editReply.mock.calls[0][0])).toContain('30 points');
+  expect(JSON.stringify(command.editReply.mock.calls[0][0])).toContain('30 total points');
 });
 
 it('keeps old welcome xp:rules buttons working', async () => {
@@ -126,7 +126,7 @@ function inPointsChannel(command: ReturnType<typeof interaction> | ReturnType<ty
   Object.assign(command.value, { guildId: '923456789012345678', channelId });
   return { ...command, channelId };
 }
-const account = { lifetimeXp: 30, ranks: { weekly: 2, monthly: 3, all_time: 4 }, enabled: true };
+const account = { timezone: 'Asia/Shanghai', lifetimeXp: 30, ranks: { weekly: 2, monthly: 3, all_time: 4 }, enabled: true };
 
 it.each(['rules', 'rank', 'leaderboard'])('shares %s publicly only in the configured channel', async kind => {
   const command = inPointsChannel(interaction(kind === 'rules' ? 'points' : kind));
@@ -137,6 +137,7 @@ it.each(['rules', 'rank', 'leaderboard'])('shares %s publicly only in the config
   const payload = JSON.stringify(command.editReply.mock.calls[0][0]);
   if (kind === 'rank') {
     expect(payload).toContain('123456789012345678 · Evo Points');
+    expect(payload).toContain('Overall Rank #4');
     expect(payload).not.toMatch(/Level|next level/);
   }
 });
@@ -170,16 +171,23 @@ it('limits concurrent public cards across members and commands; buttons bypass t
     await Promise.all([showPoints(first.value, xp, { channelId: first.channelId }), showPoints(second.value, xp, { channelId: first.channelId })]);
     expect(first.deferReply).toHaveBeenCalledWith({});
     expect(second.deferReply).toHaveBeenCalledWith({ flags: MessageFlags.Ephemeral });
-    expect(JSON.stringify(second.editReply.mock.calls[0][0])).toContain('60 seconds');
-    expect(leaderboard).not.toHaveBeenCalled();
+    expect(JSON.stringify(second.editReply.mock.calls[0][0])).toContain('private result');
+    expect(leaderboard).toHaveBeenCalledTimes(1);
     const privateButton = inPointsChannel(button('xp:rank'), first.channelId);
     await showPoints(privateButton.value, xp, { channelId: first.channelId });
     expect(summary).toHaveBeenCalledTimes(2);
+    for (const id of ['xp:rank', 'xp:leaderboard:weekly', 'xp:leaderboard:monthly', 'xp:rules']) {
+      const click = inPointsChannel(button(id), first.channelId);
+      await showPoints(click.value, { ...xp, current: async () => ({ body: xpDefaults }) } as unknown as XpService, { channelId: first.channelId });
+      expect(click.deferReply).toHaveBeenCalledWith({ flags: MessageFlags.Ephemeral });
+      expect((click.editReply.mock.calls[0][0] as { content?: string }).content).toBeUndefined();
+    }
+    expect(leaderboard).toHaveBeenCalledTimes(3);
     clock.mockReturnValue(1793000060000);
     const later = inPointsChannel(interaction('leaderboard'), first.channelId);
     await showPoints(later.value, xp, { channelId: first.channelId });
     expect(later.deferReply).toHaveBeenCalledWith({});
-    expect(leaderboard).toHaveBeenCalledTimes(1);
+    expect(leaderboard).toHaveBeenCalledTimes(4);
   } finally { clock.mockRestore(); }
 });
 
@@ -193,4 +201,26 @@ it('uses one paused message across the rule card, personal points and empty boar
   for (const command of [rank, board]) expect(JSON.stringify(command.editReply.mock.calls[0][0])).toContain(pointsPaused);
   expect(JSON.stringify(board.editReply.mock.calls[0][0])).not.toContain('as members begin earning');
   expect(JSON.stringify(rank.editReply.mock.calls[0][0])).not.toMatch(/Level|next level/);
+});
+
+it('puts the overall rank in the main title, with clear unranked and weekly/monthly states', async () => {
+  for (const ranked of [true, false]) {
+    const command = button('xp:rank');
+    await showPoints(command.value, { summary: async () => ({ ...account, ranks: ranked ? account.ranks : { weekly: null, monthly: null, all_time: null }, lifetimeXp: ranked ? 30 : 0 }) } as unknown as XpService);
+    const embed = (command.editReply.mock.calls[0][0] as { embeds: { title: string; fields: { name: string; value: string }[] }[] }).embeds[0];
+    expect(embed.title).toBe(ranked ? '🏆 Overall Rank #4' : '🏆 Overall Rank · Unranked');
+    expect(embed.fields.map(field => field.value)).toEqual(ranked ? ['**#2**', '**#3**', '**#4**'] : ['Unranked', 'Unranked', 'Unranked']);
+    expect(() => EmbedBuilder.from(embed).toJSON()).not.toThrow();
+  }
+});
+
+it('explains commands and calendar ranking periods using the configured timezone', () => {
+  const embed = pointsGuide({ ...xpDefaults, timezone: 'America/New_York' }).embeds[0];
+  expect(embed.description).toContain('`/rank` — your points and rankings.');
+  expect(embed.description).toContain('`/leaderboard` — community rankings.');
+  expect(embed.description).toContain('Monday 00:00');
+  expect(embed.description).toContain('the 1st, 00:00');
+  expect(embed.description).toContain('**America/New_York**');
+  expect(embed.description).toContain('Equal points share a rank');
+  expect(embed.description).toContain('your total points stay');
 });

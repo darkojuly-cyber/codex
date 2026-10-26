@@ -158,15 +158,15 @@ export class XpService {
     const rows = await this.db.query("WITH totals AS (SELECT user_id,SUM(amount)::bigint AS xp FROM xp_ledger WHERE ($2::date IS NULL OR (occurred_at AT TIME ZONE $1)::date >= $2::date) AND occurred_at<=$3 GROUP BY user_id HAVING SUM(amount)>0), ranked AS (SELECT user_id,xp,DENSE_RANK() OVER(ORDER BY xp DESC)::int AS rank FROM totals) SELECT * FROM ranked ORDER BY xp DESC,user_id LIMIT 10 OFFSET $4", [revision.body.timezone, start, now, (page - 1) * 10]);
     return { period, page, enabled: revision.body.enabled, timezone: revision.body.timezone, startsOn: start, entries: rows.map(r => ({ user_id: String(r.user_id), rank: Number(r.rank), xp: Number(r.xp) })) };
   }
-  async summary(user: string) {
+  async summary(user: string, now = new Date()) {
     const revision = await this.current();
-    const [total] = await this.db.query('SELECT COALESCE(SUM(amount),0)::bigint AS xp FROM xp_ledger WHERE user_id=$1', [user]);
+    const [total] = await this.db.query('SELECT COALESCE(SUM(amount),0)::bigint AS xp FROM xp_ledger WHERE user_id=$1 AND occurred_at<=$2', [user, now]);
     const xp = Number(total.xp);
     const level = revision.body.levelThresholds.filter(threshold => xp >= threshold).length;
     const ranks: Record<string, number | null> = {};
     for (const period of ['weekly', 'monthly', 'all_time'] as const) {
-      const start = periodStart(new Date(), period, revision.body.timezone);
-      const [rank] = await this.db.query("WITH totals AS (SELECT user_id,SUM(amount)::bigint AS xp FROM xp_ledger WHERE ($2::date IS NULL OR (occurred_at AT TIME ZONE $1)::date >= $2::date) GROUP BY user_id HAVING SUM(amount)>0), ranked AS (SELECT user_id,DENSE_RANK() OVER(ORDER BY xp DESC)::int AS rank FROM totals) SELECT rank FROM ranked WHERE user_id=$3", [revision.body.timezone, start, user]);
+      const start = periodStart(now, period, revision.body.timezone);
+      const [rank] = await this.db.query("WITH totals AS (SELECT user_id,SUM(amount)::bigint AS xp FROM xp_ledger WHERE ($2::date IS NULL OR (occurred_at AT TIME ZONE $1)::date >= $2::date) AND occurred_at<=$4 GROUP BY user_id HAVING SUM(amount)>0), ranked AS (SELECT user_id,DENSE_RANK() OVER(ORDER BY xp DESC)::int AS rank FROM totals) SELECT rank FROM ranked WHERE user_id=$3", [revision.body.timezone, start, user, now]);
       ranks[period] = rank ? Number(rank.rank) : null;
     }
     return { userId: user, lifetimeXp: xp, level, nextLevelXp: revision.body.levelThresholds[level] ?? null, ranks, enabled: revision.body.enabled, timezone: revision.body.timezone };

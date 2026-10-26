@@ -49,7 +49,7 @@ export function pointsGuide(config: XpConfig, appearance: WelcomeAppearance = {}
     color: 0xa78bfa,
     author: { name: 'EVOMEME COMMUNITY', ...(icon ? { icon_url: icon } : {}) },
     title: evoPointsTitle,
-    description: `${config.enabled ? '' : `**${pointsPaused}**\n\n`}${evoPointsIntro}\n\n**Ways to earn**\n${lines.length ? lines.join('\n') : 'Earning opportunities are being prepared. Check back for the community’s published rewards.'}${creation || issue || featured || event ? '\n\nReviewed contributions earn points after team approval.' : ''}\n\nCheck your progress and meet the community's top contributors below.`,
+    description: `${config.enabled ? '' : `**${pointsPaused}**\n\n`}${evoPointsIntro}\n\n**Ways to earn**\n${lines.length ? lines.join('\n') : 'Earning opportunities are being prepared. Check back for the community’s published rewards.'}${creation || issue || featured || event ? '\n\nReviewed contributions earn points after team approval.' : ''}\n\n**Your points & rankings**\n\`/rank\` — your points and rankings.\n\`/leaderboard\` — community rankings.\n**Weekly:** net points since Monday 00:00.\n**Monthly:** net points since the 1st, 00:00.\nTimes use **${config.timezone}**. Equal points share a rank. New periods start fresh; your total points stay.`,
     ...(avatar ? { thumbnail: { url: avatar } } : {}),
     footer: { text: evoPointsFooter },
   };

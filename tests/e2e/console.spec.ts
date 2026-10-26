@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
 
 test('staff can create a prompt, handle a private mock ticket, publish configuration and send a confirmed message', async ({ page }) => {
   const errors: string[] = [];
@@ -38,12 +39,27 @@ test('staff can create a prompt, handle a private mock ticket, publish configura
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('<img src=x onerror="window.__evomemeXssProbe=1">');
   await expect(page.locator('.message-preview img')).toHaveCount(0);
   expect(await page.evaluate(() => '__evomemeXssProbe' in window)).toBe(false);
-  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('A local acceptance message. @everyone remains suppressed.');
+  const deliveryText = `A local acceptance message. @everyone remains suppressed. ${randomUUID()}`;
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill(deliveryText);
   await page.getByRole('button', { name: 'Save draft', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Message saved');
+  const confirmation = page.waitForResponse(response => response.url().endsWith('/confirm') && response.request().method() === 'POST');
   await page.getByRole('button', { name: 'Confirm delivery' }).click();
-  await expect(page.getByText('SCHEDULED', { exact: true })).toBeVisible();
-  await expect.poll(async () => { await page.getByRole('button', { name: '↻ Refresh' }).click(); return await page.getByText('SENT', { exact: true }).count(); }).toBe(1);
+  const confirmed = await confirmation;
+  expect(confirmed.ok()).toBe(true);
+  const queued = await confirmed.json();
+  expect(queued.status).toBe('SCHEDULED');
+  // The embedded mock worker ticks every 2s. Wait for this exact job rather than
+  // refreshing and immediately counting a DOM list that is cleared while loading.
+  await expect.poll(async () => {
+    const response = await page.request.get('/api/messages');
+    expect(response.ok()).toBe(true);
+    const jobs = await response.json() as { id: string; status: string; error_code: string | null }[];
+    const job = jobs.find(job => job.id === queued.id);
+    return `${job?.status ?? 'MISSING'}:${job?.error_code ?? ''}`;
+  }, { timeout: 15000, intervals: [500, 1000], message: 'Confirmed mock message should be sent by the embedded worker' }).toBe('SENT:');
+  await page.getByRole('button', { name: '↻ Refresh' }).click();
+  await expect(page.locator('.job').filter({ hasText: deliveryText }).getByText('SENT', { exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/message-delivery.png', fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Overview' }).click();

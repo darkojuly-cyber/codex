@@ -52,3 +52,7 @@ npm run api
 先以写入关闭的配置运行只读公会审计，核对权限；获得测试公会操作批准后再开启写入、注册命令并启动 Bot / Worker。当前没有配置这些凭证，真实 Gateway、OAuth 和私密频道仍需 sandbox 验收。
 
 积分与 Boost 核查已加入，默认关闭；先阅读 [积分使用步骤](docs/XP.md)。舆情、DM 和重复排期尚未实现；完整范围见 [交付状态](docs/STATUS.md)。
+
+## Windows 每日启动
+
+配置完成后双击项目根目录的 **Start.cmd** 即可，无需逐个输入 PowerShell 命令。控制窗口可以最小化；双击 **Stop.cmd** 停止，**Status.cmd** 查看状态。第一次切换前先停止旧的手动服务，详见 [一键启动与登录自启](docs/WINDOWS_LAUNCHER.md)。

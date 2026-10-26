@@ -5,6 +5,7 @@ import staticFiles from '@fastify/static';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z, ZodError } from 'zod';
+import { createHash } from 'node:crypto';
 import { AppError, ctas } from '../../../packages/core/src/config.js';
 import type { Env } from '../../../packages/core/src/env.js';
 import type { CommunityService } from '../../../packages/core/src/service.js';
@@ -32,7 +33,7 @@ export async function createApp(service: CommunityService, env: Env) {
   const paramId = (request: { params: unknown }) => z.object({ id: z.string().uuid() }).parse(request.params).id;
   app.get('/api/health', async () => {
     await service.db.query('SELECT 1');
-    return { status: 'ok', mode: env.APP_MODE.toUpperCase(), database: env.DATABASE_URL ? 'PostgreSQL' : 'PGlite (local)', discord: env.APP_MODE === 'mock' ? 'NOT_CONNECTED' : 'GATEWAY_STATUS_NOT_CHECKED', writesEnabled: env.DISCORD_WRITES_ENABLED === 'true' };
+    return { status: 'ok', localProjectId: createHash('sha256').update(resolve(process.cwd()).toLowerCase()).digest('hex'), mode: env.APP_MODE.toUpperCase(), database: env.DATABASE_URL ? 'PostgreSQL' : 'PGlite (local)', discord: env.APP_MODE === 'mock' ? 'NOT_CONNECTED' : 'GATEWAY_STATUS_NOT_CHECKED', writesEnabled: env.DISCORD_WRITES_ENABLED === 'true' };
   });
   app.get('/api/dashboard', request => service.dashboard(request.actor));
   app.get('/api/config', async request => {

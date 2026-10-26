@@ -104,3 +104,7 @@
 环境恢复后完成成员卡改版：保留头像、标题和紫色主题，使用用户最终确认的 Evo Points 文案与软性页脚。按钮连接本人积分、本周榜和本月榜；旧欢迎卡入口兼容。预设数值为首次发言 10、聊天 2/日上限20、创作 5/日上限20、问题建议 3/日上限18、精选10、首次Boost20、连续30天30。新增后台生成草稿入口，旧规则、旧账目不自动覆盖，总开关关闭。详见 [EVO_POINTS_CARD.md](EVO_POINTS_CARD.md)。真实 Guild 卡片仍需用户本机更新后验收。
 
 Evo Points 卡片本轮验证：lint/build、69 项本地测试和 8 项浏览器流程通过；未重新运行真实 PostgreSQL 或用户 Neon 的验证，未更改线上规则。
+
+## Windows 一键启动（2026-10-26）
+
+新增 Start.cmd、Stop.cmd、Status.cmd：单控制窗口启动 API/Caddy/Bot/Worker，源码变化时自动构建，服务就绪后打开本地后台。会话防重复、本地认证控制、凭证日志过滤、重启及 PID 复用状态恢复均有测试；停止只作用于本次自己启动的子进程。通过 lint/build、78 项本地测试和 8 项浏览器流程。Windows CMD/CIM/证书联动需要用户本机首验，云端未声称实际运行成功。详见 [WINDOWS_LAUNCHER.md](WINDOWS_LAUNCHER.md)。

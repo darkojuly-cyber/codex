@@ -120,6 +120,11 @@ async function fetchBoost(user: string) {
 }
 client.once('clientReady', () => console.log(JSON.stringify({ event: 'bot.ready', mode: 'DISCORD', membersIntent: env.GUILD_MEMBERS_INTENT, warning: env.GUILD_MEMBERS_INTENT !== 'true' ? 'Automatic welcome unavailable; use /welcome' : undefined })));
 client.on('error', () => console.error('Discord Gateway error'));
-for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { client.destroy(); void db.close(); });
+let shutdownRequested = false;
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
+  if (shutdownRequested) return;
+  shutdownRequested = true;
+  client.destroy(); void db.close();
+});
 try { await client.login(env.DISCORD_TOKEN); }
 catch { console.error('Discord login failed. Verify token, Guild ID and privileged intent approval in environment settings.'); await db.close(); process.exitCode = 1; }

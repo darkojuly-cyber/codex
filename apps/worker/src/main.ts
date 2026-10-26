@@ -3,6 +3,7 @@ import { readEnv } from '../../../packages/core/src/env.js';
 import { DiscordTransport } from '../../../packages/core/src/transport.js';
 if (readEnv().APP_MODE === 'mock') throw new Error('Mock worker is embedded in the API process. Use npm run dev.');
 const { service, db } = await runtime();
+console.log(JSON.stringify({ event: 'worker.ready', mode: 'DISCORD' }));
 let stopping = false;
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { stopping = true; });
 while (!stopping) {

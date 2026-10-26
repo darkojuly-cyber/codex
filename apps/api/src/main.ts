@@ -10,5 +10,10 @@ const timer = env.APP_MODE === 'mock' ? setInterval(async () => {
   finally { busy = false; }
 }, 2000) : undefined;
 app.addHook('onClose', async () => { clearInterval(timer); while (busy) await new Promise(r => setTimeout(r, 20)); await db.close(); });
-for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { void app.close(); });
+let shutdownRequested = false;
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
+  if (shutdownRequested) return;
+  shutdownRequested = true;
+  void app.close();
+});
 await app.listen({ host: env.HOST, port: env.PORT });

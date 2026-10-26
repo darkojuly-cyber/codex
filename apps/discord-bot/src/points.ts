@@ -5,7 +5,7 @@ import { pointsGuide, pointsNavigation, pointsPaused } from './points-card.js';
 
 const noMentions = { parse: [] as never[], users: [], roles: [], repliedUser: false };
 const safe = (value: string) => value.replace(/([\\`*_~|>[\]])/g, '\\$1').replace(/@/g, '@\u200b');
-export const pointsUiVersion = 'points-v3';
+export const pointsUiVersion = 'points-v4';
 const publicCooldowns = new Map<string, number>();
 function rankAppearance(rank: number | null) {
   if (rank === 1) return { color: 0xf6c453, badge: '🥇' };
@@ -44,6 +44,7 @@ export async function showPoints(interaction: ChatInputCommandInteraction | Butt
     const rank = (value: number | null) => value ? `${rankAppearance(value).badge} **#${value}**` : 'Unranked';
     const appearance = rankAppearance(summary.ranks.all_time);
     const avatar = interaction.user.displayAvatarURL({ size: 256, extension: 'png' });
+    const participationNote = !summary.enabled ? pointsPaused : summary.eligible === false ? 'This account is not eligible for Evo Points.' : summary.rankEligible === false ? 'Your points are recorded. Admin accounts are not included in leaderboards.' : null;
     if (buttonId === 'xp:rank') {
       await interaction.editReply({ embeds: [{
         color: 0xa78bfa,
@@ -56,7 +57,7 @@ export async function showPoints(interaction: ChatInputCommandInteraction | Butt
           { name: '📅 Points this month', value: `**${summary.periodXp.monthly} points**`, inline: true },
           { name: '✨ Overall rank', value: rank(summary.ranks.all_time), inline: true },
         ],
-        footer: { text: summary.enabled ? `${summary.timezone} · Period totals include point corrections` : pointsPaused },
+        footer: { text: participationNote ?? `${summary.timezone} · Period totals include point corrections` },
       }], ...pointsNavigation(), ...delivery });
       return;
     }
@@ -65,13 +66,13 @@ export async function showPoints(interaction: ChatInputCommandInteraction | Butt
       author: { name: `${interaction.user.username ?? interaction.user.id} · Evo Points`, icon_url: avatar },
       title: summary.ranks.all_time ? `${appearance.badge} #${summary.ranks.all_time} · Overall Rank` : '✨ Unranked · Overall Rank',
       thumbnail: { url: avatar },
-      description: `✨ **${summary.lifetimeXp} total points**${summary.ranks.all_time ? '' : '\nEarn your first points to join the rankings.'}`,
+      description: `✨ **${summary.lifetimeXp} total points**${summary.ranks.all_time || summary.rankEligible === false ? '' : '\nEarn your first points to join the rankings.'}`,
       fields: [
         { name: '🏆 This week', value: rank(summary.ranks.weekly), inline: true },
         { name: '📅 This month', value: rank(summary.ranks.monthly), inline: true },
         { name: '✨ Overall', value: rank(summary.ranks.all_time), inline: true },
       ],
-      footer: { text: summary.enabled ? `${summary.timezone} · Equal points share a rank` : pointsPaused },
+      footer: { text: participationNote ?? `${summary.timezone} · Equal points share a rank` },
     }], ...pointsNavigation(), ...delivery });
     return;
   }

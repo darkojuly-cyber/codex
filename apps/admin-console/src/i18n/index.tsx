@@ -5,6 +5,7 @@ export type Locale = 'en' | 'zh-CN';
 export type Values = Record<string, string | number>;
 export const languageStorageKey = 'evomeme.console.language';
 const english: Record<string, string> = {
+  'xp.event.manual': 'Manual adjustment',
   'Console title': 'EvoMeme Community Console',
   "xp.event.first_message": "First Message",
   "xp.event.chat": "Chat",
@@ -36,6 +37,10 @@ export function translate(locale: Locale, key: string, values: Values = {}) {
 }
 
 const errorCopy: Record<string, string> = {
+  'XP_MEMBER_NOT_ELIGIBLE': '该账号无法参与积分（例如机器人或已离开服务器的成员）。',
+  'XP_ELIGIBILITY_UNAVAILABLE': '暂时无法核实成员资格，本次不会发分，请稍后重试。',
+  'XP_DATE_RANGE': '开始日期不能晚于结束日期。',
+
   "XP_DRAFT_STALE": "此积分草稿已过期，不能直接发布。请复制为基于当前版本的新草稿后重新审核。",
   "XP_DRAFT_CHANGED": "此积分草稿已被修改，请载入最新草稿后重新审核。你的本地编辑不会自动覆盖它。",
 

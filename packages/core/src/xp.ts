@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { Database, Queryable } from '../../db/src.js';
 import { AppError, type Actor } from './config.js';
-import { xpConfigSchema, xpDefaults, evoPointsProposal, periodStart, type XpConfig, type XpEvent, type XpRule, type XpPeriod } from './xp-config.js';
+import { xpConfigSchema, xpDefaults, evoPointsProposal, periodStart, xpEvents, type XpConfig, type XpEvent, type XpRule, type XpPeriod } from './xp-config.js';
 
 type Row = Record<string, unknown>;
 export type XpRevision = { id: string; version: number; status: string; body: XpConfig; published_at: Date | string | null; base_version: number | null; edit_version: number };
@@ -12,7 +12,25 @@ const sourceId = z.string().regex(/^[a-zA-Z0-9:_-]{5,120}$/);
 const thirtyDays = 30 * 86400000;
 
 export class XpService {
-  constructor(readonly db: Database) {}
+  constructor(readonly db: Database, readonly participant?: (user: string) => Promise<{ canEarn: boolean; canRank: boolean }>) {}
+  async refreshParticipant(user: string, force = false) {
+    if (!this.participant) return { canEarn: true, canRank: true };
+    const [cached] = await this.db.query("SELECT can_earn,can_rank FROM xp_participant WHERE user_id=$1 AND checked_at>now()-interval '30 seconds'", [user]);
+    if (cached && !force) return { canEarn: cached.can_earn === true, canRank: cached.can_rank === true };
+    let participation: { canEarn: boolean; canRank: boolean };
+    try { participation = await this.participant(user); }
+    catch { throw new AppError(503, 'XP_ELIGIBILITY_UNAVAILABLE'); }
+    await this.db.query('INSERT INTO xp_participant(user_id,can_earn,can_rank) VALUES($1,$2,$3) ON CONFLICT(user_id) DO UPDATE SET can_earn=$2,can_rank=$3,checked_at=now()', [user, participation.canEarn, participation.canRank]);
+    return participation;
+  }
+  async invalidateParticipants() {
+    await this.db.query("UPDATE xp_participant SET checked_at='1970-01-01' WHERE checked_at>'1970-01-01'");
+  }
+  private async refreshParticipants() {
+    if (!this.participant) return;
+    const users = await this.db.query("SELECT DISTINCT l.user_id FROM xp_ledger l LEFT JOIN xp_participant p ON p.user_id=l.user_id WHERE p.checked_at IS NULL OR p.checked_at<=now()-interval '30 seconds'");
+    for (let i = 0; i < users.length; i += 5) await Promise.all(users.slice(i, i + 5).map(row => this.refreshParticipant(String(row.user_id))));
+  }
   requireManager(actor: Actor) {
     if (!['SUPER_ADMIN', 'COMMUNITY_MANAGER'].includes(actor.role)) throw new AppError(403, 'FORBIDDEN');
   }
@@ -111,6 +129,7 @@ export class XpService {
     const c = revision.body;
     const now = Date.now();
     if (!c.enabled || !rule?.enabled) return reject('XP_DISABLED');
+    if (this.participant && !(await tx.query('SELECT user_id FROM xp_participant WHERE user_id=$1 AND can_earn=true', [data.user])).length) return reject('XP_MEMBER_NOT_ELIGIBLE');
     if (!Number.isFinite(data.occurredAt.getTime()) || data.occurredAt.getTime() > now + 5000 || data.occurredAt < new Date(revision.published_at!)) return reject('EVENT_OUTSIDE_RULE_VERSION');
     if ((rule.startsAt && data.occurredAt < new Date(rule.startsAt)) || (rule.endsAt && data.occurredAt >= new Date(rule.endsAt))) return reject('RULE_OUTSIDE_WINDOW');
     if (['first_message', 'chat', 'official_discussion'].includes(data.event) && c.excludedCategoryIds === undefined && (!data.channel || !rule.channels.includes(data.channel))) return reject('CHANNEL_NOT_ELIGIBLE');
@@ -132,6 +151,7 @@ export class XpService {
   async message(input: { user: string; messageId: string; channelId: string; content: string; occurredAt: Date; bot: boolean; categoryId?: string | null; announcement?: boolean }) {
     if (input.bot) return { awarded: false, reason: 'BOT_MESSAGE', amount: 0 };
     userId.parse(input.user); userId.parse(input.messageId); userId.parse(input.channelId);
+    if (!(await this.refreshParticipant(input.user)).canEarn) return { awarded: false, reason: 'XP_MEMBER_NOT_ELIGIBLE', amount: 0 };
     return this.db.transaction(async tx => {
       await tx.query('LOCK TABLE xp_ledger IN EXCLUSIVE MODE');
       const revision = await this.current(tx);
@@ -155,6 +175,7 @@ export class XpService {
   async reviewed(actor: Actor, input: unknown) {
     this.requireManager(actor);
     const data = z.object({ userId, event: z.enum(['creation', 'confirmed_issue', 'featured', 'event']), source: sourceId, reason: z.string().trim().min(5).max(500) }).strict().parse(input);
+    if (!(await this.refreshParticipant(data.userId)).canEarn) return { awarded: false, reason: 'XP_MEMBER_NOT_ELIGIBLE', amount: 0 };
     return this.db.transaction(async tx => {
       await tx.query('LOCK TABLE xp_ledger IN EXCLUSIVE MODE');
       const revision = await this.current(tx);
@@ -164,6 +185,7 @@ export class XpService {
   async adjust(actor: Actor, input: unknown) {
     this.requireManager(actor);
     const data = z.object({ userId, amount: z.number().int().min(-10000).max(10000).refine(v => v !== 0), requestKey: z.string().uuid(), reason: z.string().trim().min(5).max(500) }).strict().parse(input);
+    if (data.amount > 0 && !(await this.refreshParticipant(data.userId)).canEarn) throw new AppError(409, 'XP_MEMBER_NOT_ELIGIBLE');
     return this.db.transaction(async tx => {
       await tx.query('LOCK TABLE xp_ledger IN EXCLUSIVE MODE');
       const revision = await this.current(tx);
@@ -182,13 +204,16 @@ export class XpService {
     });
   }
   async leaderboard(period: XpPeriod = 'weekly', page = 1, now = new Date()) {
+    await this.refreshParticipants();
     z.enum(['weekly', 'monthly', 'all_time']).parse(period); z.number().int().min(1).max(100).parse(page);
     const revision = await this.current();
     const start = periodStart(now, period, revision.body.timezone);
-    const rows = await this.db.query("WITH totals AS (SELECT user_id,SUM(amount)::bigint AS xp FROM xp_ledger WHERE ($2::date IS NULL OR (occurred_at AT TIME ZONE $1)::date >= $2::date) AND occurred_at<=$3 GROUP BY user_id HAVING SUM(amount)>0), ranked AS (SELECT user_id,xp,DENSE_RANK() OVER(ORDER BY xp DESC)::int AS rank FROM totals) SELECT * FROM ranked ORDER BY xp DESC,user_id LIMIT 10 OFFSET $4", [revision.body.timezone, start, now, (page - 1) * 10]);
+    const rows = await this.db.query("WITH totals AS (SELECT user_id,SUM(amount)::bigint AS xp FROM xp_ledger WHERE ($2::date IS NULL OR (occurred_at AT TIME ZONE $1)::date >= $2::date) AND occurred_at<=$3 AND ($5::boolean=false OR EXISTS(SELECT 1 FROM xp_participant p WHERE p.user_id=xp_ledger.user_id AND p.can_rank=true)) GROUP BY user_id HAVING SUM(amount)>0), ranked AS (SELECT user_id,xp,DENSE_RANK() OVER(ORDER BY xp DESC)::int AS rank FROM totals) SELECT * FROM ranked ORDER BY xp DESC,user_id LIMIT 10 OFFSET $4", [revision.body.timezone, start, now, (page - 1) * 10, !!this.participant]);
     return { period, page, enabled: revision.body.enabled, timezone: revision.body.timezone, startsOn: start, entries: rows.map(r => ({ user_id: String(r.user_id), rank: Number(r.rank), xp: Number(r.xp) })) };
   }
   async summary(user: string, now = new Date()) {
+    const participation = await this.refreshParticipant(user);
+    await this.refreshParticipants();
     const revision = await this.current();
     const [total] = await this.db.query('SELECT COALESCE(SUM(amount),0)::bigint AS xp FROM xp_ledger WHERE user_id=$1 AND occurred_at<=$2', [user, now]);
     const xp = Number(total.xp);
@@ -197,11 +222,34 @@ export class XpService {
     const periodXp: Record<string, number> = {};
     for (const period of ['weekly', 'monthly', 'all_time'] as const) {
       const start = periodStart(now, period, revision.body.timezone);
-      const [rank] = await this.db.query("WITH totals AS (SELECT user_id,SUM(amount)::bigint AS xp FROM xp_ledger WHERE ($2::date IS NULL OR (occurred_at AT TIME ZONE $1)::date >= $2::date) AND occurred_at<=$4 GROUP BY user_id), ranked AS (SELECT user_id,DENSE_RANK() OVER(ORDER BY xp DESC)::int AS rank FROM totals WHERE xp>0) SELECT (SELECT rank FROM ranked WHERE user_id=$3) AS rank, COALESCE((SELECT xp FROM totals WHERE user_id=$3),0)::bigint AS xp", [revision.body.timezone, start, user, now]);
+      const [rank] = await this.db.query("WITH totals AS (SELECT user_id,SUM(amount)::bigint AS xp FROM xp_ledger WHERE ($2::date IS NULL OR (occurred_at AT TIME ZONE $1)::date >= $2::date) AND occurred_at<=$4 GROUP BY user_id), ranked AS (SELECT user_id,DENSE_RANK() OVER(ORDER BY xp DESC)::int AS rank FROM totals WHERE xp>0 AND ($5::boolean=false OR EXISTS(SELECT 1 FROM xp_participant p WHERE p.user_id=totals.user_id AND p.can_rank=true))) SELECT (SELECT rank FROM ranked WHERE user_id=$3) AS rank, COALESCE((SELECT xp FROM totals WHERE user_id=$3),0)::bigint AS xp", [revision.body.timezone, start, user, now, !!this.participant]);
       ranks[period] = rank.rank === null ? null : Number(rank.rank);
       periodXp[period] = Number(rank.xp);
     }
-    return { userId: user, lifetimeXp: xp, level, nextLevelXp: revision.body.levelThresholds[level] ?? null, ranks, periodXp, enabled: revision.body.enabled, timezone: revision.body.timezone };
+    return { userId: user, lifetimeXp: xp, level, nextLevelXp: revision.body.levelThresholds[level] ?? null, ranks, periodXp, eligible: participation.canEarn, rankEligible: participation.canRank, enabled: revision.body.enabled, timezone: revision.body.timezone };
+  }
+  async revisions(actor: Actor, input: unknown) {
+    this.requireManager(actor);
+    const { page, pageSize } = z.object({ page: z.coerce.number().int().min(1).max(100000).default(1), pageSize: z.coerce.number().int().min(1).max(50).default(10) }).strict().parse(input);
+    const [count] = await this.db.query('SELECT count(*)::int AS total FROM xp_rule_revision');
+    const entries = await this.db.query('SELECT * FROM xp_rule_revision ORDER BY version DESC LIMIT $1 OFFSET $2', [pageSize, (page - 1) * pageSize]);
+    return { entries, total: Number(count.total), page, pageSize };
+  }
+  async ledger(actor: Actor, input: unknown) {
+    this.requireManager(actor);
+    const q = z.object({ memberId: userId.optional(), event: z.enum([...xpEvents, 'manual']).optional(), from: z.iso.date().optional(), to: z.iso.date().optional(), page: z.coerce.number().int().min(1).max(100000).default(1), pageSize: z.coerce.number().int().min(1).max(50).default(20) }).strict().parse(input);
+    if (q.from && q.to && q.from > q.to) throw new AppError(400, 'XP_DATE_RANGE');
+    const timezone = (await this.current()).body.timezone;
+    const params = [q.memberId ?? null, q.event ?? null, q.from ?? null, q.to ?? null, timezone];
+    const where = 'WHERE ($1::text IS NULL OR user_id=$1) AND ($2::text IS NULL OR event_kind=$2) AND ($3::date IS NULL OR occurred_at >= ($3::date::timestamp AT TIME ZONE $5)) AND ($4::date IS NULL OR occurred_at < (($4::date + 1)::timestamp AT TIME ZONE $5))';
+    const [count] = await this.db.query(`SELECT count(*)::int AS total FROM xp_ledger ${where}`, params);
+    const entries = await this.db.query(`SELECT * FROM xp_ledger ${where} ORDER BY occurred_at DESC,id DESC LIMIT $6 OFFSET $7`, [...params, q.pageSize, (q.page - 1) * q.pageSize]);
+    return { entries, total: Number(count.total), page: q.page, pageSize: q.pageSize, timezone };
+  }
+  async member(actor: Actor, user: string, input: unknown) {
+    this.requireManager(actor); userId.parse(user);
+    const { page } = z.object({ page: z.coerce.number().int().min(1).max(100000).default(1) }).strict().parse(input);
+    return { userId: user, summary: await this.summary(user), ledger: await this.ledger(actor, { memberId: user, page }) };
   }
   async history(user: string, page = 1) {
     z.number().int().min(1).max(100).parse(page);
@@ -227,7 +275,13 @@ export class XpService {
     for (const row of due) {
       const user = String(row.user_id);
       let since: Date | null;
-      try { since = await fetchSince(user); }
+      try {
+        if (!(await this.refreshParticipant(user)).canEarn) {
+          await this.db.query("UPDATE xp_boost_state SET last_error_code='XP_MEMBER_NOT_ELIGIBLE',next_check_at=now()+interval '5 minutes' WHERE user_id=$1", [user]);
+          continue;
+        }
+        since = await fetchSince(user);
+      }
       catch {
         await this.db.query("UPDATE xp_boost_state SET last_error_code='BOOST_LOOKUP_FAILED',next_check_at=now()+interval '5 minutes' WHERE user_id=$1", [user]);
         continue;

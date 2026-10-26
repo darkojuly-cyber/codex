@@ -245,3 +245,16 @@ it('shows a points overview for My Points and preserves the podium rank card whe
   expect(cooled.deferReply).toHaveBeenCalledWith({ flags: MessageFlags.Ephemeral });
   expect(summary).toHaveBeenCalledTimes(3);
 });
+
+it('keeps admin points visible, explains their ranking exclusion and still reports a paused scoring state', async () => {
+  for (const enabled of [true, false]) {
+    const xp = { summary: async () => ({ ...account, enabled, eligible: true, rankEligible: false, ranks: { weekly: null, monthly: null, all_time: null } }) } as unknown as XpService;
+    for (const command of [button('xp:rank'), interaction('rank')]) {
+      await showPoints(command.value, xp);
+      const payload = JSON.stringify(command.editReply.mock.calls[0][0]);
+      expect(payload).toContain('30');
+      expect(payload).toContain(enabled ? 'Your points are recorded. Admin accounts are not included in leaderboards.' : pointsPaused);
+      expect(payload).not.toContain('Earn your first points');
+    }
+  }
+});

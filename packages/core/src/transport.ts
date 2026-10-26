@@ -15,6 +15,7 @@ export interface Transport {
   createTicket(userId: string, categoryId: string, seq: number): Promise<string>;
   deleteTicket(channelId: string): Promise<void>;
   auditGuild(): Promise<unknown>;
+  xpParticipant?(user: string): Promise<{ canEarn: boolean; canRank: boolean }>;
 }
 export class MockTransport implements Transport {
   sent: { channelId: string; body: string; key: string; id: string }[] = [];
@@ -80,6 +81,35 @@ export class DiscordTransport implements Transport {
       this.rest.get(Routes.guildChannels(guildId)), this.rest.get(Routes.guildRoles(guildId)), this.rest.get(Routes.guild(guildId)),
     ]);
     return { mode: 'DISCORD_READ_ONLY', channels, roles, guild, note: 'Raw permissions only. Effective permissions must be reviewed before enabling features. No writes performed.' };
+  }
+  private xpRoles?: { expires: number; owner: string; permissions: Map<string, bigint> };
+  private xpRolesRequest?: Promise<{ expires: number; owner: string; permissions: Map<string, bigint> }>;
+  invalidateXpRoles() { this.xpRoles = undefined; }
+  private async participantRoles() {
+    if (this.xpRoles && this.xpRoles.expires > Date.now()) return this.xpRoles;
+    if (!this.xpRolesRequest) this.xpRolesRequest = Promise.all([
+      this.rest.get(Routes.guildRoles(this.env.DISCORD_GUILD_ID!)),
+      this.rest.get(Routes.guild(this.env.DISCORD_GUILD_ID!)),
+    ]).then(([roles, guild]) => {
+      const value = { expires: Date.now() + 30000, owner: (guild as { owner_id: string }).owner_id,
+        permissions: new Map((roles as { id: string; permissions: string }[]).map(role => [role.id, BigInt(role.permissions)])) };
+      this.xpRoles = value; return value;
+    }).finally(() => { this.xpRolesRequest = undefined; });
+    return this.xpRolesRequest;
+  }
+  async xpParticipant(user: string): Promise<{ canEarn: boolean; canRank: boolean }> {
+    let member: { roles: string[]; user?: { bot?: boolean } };
+    try { member = await this.rest.get(Routes.guildMember(this.env.DISCORD_GUILD_ID!, user)) as typeof member; }
+    catch (error) { if ((error as { status?: number }).status === 404) return { canEarn: false, canRank: false }; throw error; }
+    if (member.user?.bot) return { canEarn: false, canRank: false };
+    if (ids(this.env.SUPER_ADMIN_USER_IDS).includes(user)) return { canEarn: true, canRank: false };
+    let roles = await this.participantRoles();
+    if ([this.env.DISCORD_GUILD_ID!, ...member.roles].some(role => !roles.permissions.has(role))) {
+      this.invalidateXpRoles(); roles = await this.participantRoles();
+      if ([this.env.DISCORD_GUILD_ID!, ...member.roles].some(role => !roles.permissions.has(role))) throw new Error('Member roles could not be verified');
+    }
+    const admin = roles.owner === user || [this.env.DISCORD_GUILD_ID!, ...member.roles].some(role => ((roles.permissions.get(role) ?? 0n) & PermissionFlagsBits.Administrator) !== 0n);
+    return { canEarn: true, canRank: !admin };
   }
   async boostSince(user: string): Promise<Date | null> {
     try {

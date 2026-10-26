@@ -75,6 +75,9 @@ export async function createApp(service: CommunityService, env: Env) {
   app.post('/api/messages/:id/cancel', request => service.cancelJob(request.actor, paramId(request)));
   app.get('/api/audit', request => { service.require(request.actor, 'audit'); return service.db.query('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 200'); });
   app.get('/api/xp/config', request => service.xp.configuration(request.actor));
+  app.get('/api/xp/ledger', request => service.xp.ledger(request.actor, request.query));
+  app.get('/api/xp/revisions', request => service.xp.revisions(request.actor, request.query));
+  app.get('/api/xp/members/:user', request => service.xp.member(request.actor, z.object({ user: z.string().regex(/^\d{17,20}$/) }).parse(request.params).user, request.query));
   app.get('/api/xp/rules', () => service.xp.current());
   app.get('/api/xp/me', request => service.xp.summary(request.actor.id));
   app.get('/api/xp/history', request => service.xp.history(request.actor.id, z.object({ page: z.coerce.number().int().min(1).max(100).default(1) }).parse(request.query).page));

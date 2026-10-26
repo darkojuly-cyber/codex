@@ -40,7 +40,7 @@ describe('Console localization', () => {
   });
   it('has Chinese copy for every statically translated label and all feature switches', async () => {
     const keys = new Set<string>();
-    for (const filename of ['main.tsx', 'PointsPanel.tsx']) {
+    for (const filename of ['main.tsx', 'PointsPanel.tsx', 'PointsLedger.tsx', 'PointsDialog.tsx']) {
       const source = await readFile(new URL(`../apps/admin-console/src/${filename}`, import.meta.url), 'utf8');
       const ast = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
       function visit(node: ts.Node) {

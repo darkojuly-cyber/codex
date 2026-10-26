@@ -109,6 +109,15 @@ client.on('messageCreate', message => {
   void scoreGuildMessage(message, service.xp, { enabled: env.MESSAGE_CONTENT_INTENT === 'true', guildId: env.DISCORD_GUILD_ID!, pointsChannelId: env.EVO_POINTS_CHANNEL_ID })
     .catch(error => console.error(JSON.stringify({ event: 'xp.message_failed', ...providerErrorDetails(error) })));
 });
+client.on('guildMemberUpdate', (_oldMember, member) => {
+  if (member.guild.id === env.DISCORD_GUILD_ID) void service.xp.refreshParticipant(member.id, true)
+    .catch(error => console.error(JSON.stringify({ event: 'xp.eligibility_failed', ...providerErrorDetails(error) })));
+});
+client.on('roleUpdate', (_oldRole, role) => {
+  if (role.guild.id !== env.DISCORD_GUILD_ID) return;
+  if (service.transport instanceof DiscordTransport) service.transport.invalidateXpRoles();
+  void service.xp.invalidateParticipants().catch(() => console.error('XP eligibility refresh failed'));
+});
 client.on('guildMemberUpdate', (oldMember, member) => {
   if (member.guild.id !== env.DISCORD_GUILD_ID || member.user.bot || oldMember.premiumSinceTimestamp === member.premiumSinceTimestamp) return;
   void service.xp.observeBoost(member.id, member.premiumSince, !oldMember.premiumSinceTimestamp && !!member.premiumSinceTimestamp)

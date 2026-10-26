@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { xpDefaults, xpEvents, type XpConfig, type XpRule, type XpPeriod } from '../../../packages/core/src/xp-config';
+import { PointsDialog } from './PointsDialog';
+import { PointsLedger, PointsMemberDialog, PointsPagination } from './PointsLedger';
 import { translateError, formatDate, type Locale, type Values } from './i18n';
 
 type Row = Record<string, unknown>;
@@ -28,6 +30,18 @@ export function PointsPanel({ api, active, refreshKey, locale, t }: { api: Api; 
   const [reviewReason, setReviewReason] = useState('');
   const [period, setPeriod] = useState<XpPeriod>('weekly');
   const [board, setBoard] = useState<Row[]>([]);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [history, setHistory] = useState<{ entries: Revision[]; page: number; pageSize: number; total: number } | null>(null);
+  const [member, setMember] = useState<string | null>(null);
+  const [ledgerRefresh, setLedgerRefresh] = useState(0);
+  async function loadHistory(page = 1) {
+    setHistoryBusy(true);
+    try { setHistory(await api(`/xp/revisions?page=${page}`)); }
+    catch (e) { setError((e as Error).message); }
+    finally { setHistoryBusy(false); }
+  }
   function edit(revision: Revision, publishedVersion = overview?.current.version ?? revision.version) {
     const value = revision.body;
     const pending = ['DRAFT', 'APPROVED'].includes(revision.status);
@@ -40,7 +54,7 @@ export function PointsPanel({ api, active, refreshKey, locale, t }: { api: Api; 
   }
   async function load(reset = false) {
     const result = await api<Overview>('/xp/config');
-    setOverview(result);
+    setOverview(result); setLedgerRefresh(value => value + 1);
     if (reset || !config) edit(result.current, result.current.version);
   }
   useEffect(() => { if (active) void load().catch(e => setError((e as Error).message)); }, [active, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -64,7 +78,7 @@ export function PointsPanel({ api, active, refreshKey, locale, t }: { api: Api; 
   return <>
     {error && <p className="error" role="alert">{translateError(locale, error)}</p>}
     {notice && <p className="notice" role="status">{t(notice)}</p>}
-    <section><h2>{t('XP & Rewards')}</h2><p>{t('Published XP rules v{version}', { version: overview.current.version })} · <strong>{t(overview.current.body.enabled ? 'Scoring enabled' : 'Scoring disabled')}</strong></p><p className="muted">{t('Values below are proposals until reviewed and published. Changes apply to new events; previous awards stay in the ledger.')}</p>
+    <section className="points-overview"><div className="points-overview-header"><p>{t('Published XP rules v{version}', { version: overview.current.version })} · <strong>{t(overview.current.body.enabled ? 'Scoring enabled' : 'Scoring disabled')}</strong></p><button onClick={() => { setHistoryOpen(true); void loadHistory(); }}>{t('XP rule history')}</button></div><p className="muted">{t('Admins and moderators earn points. Only admins are excluded from leaderboards. Existing records are preserved.')}</p><details className="points-tools" open={rulesOpen} onToggle={event => setRulesOpen(event.currentTarget.open)}><summary>{t('Edit XP rules')}</summary><p className="muted">{t('Values below are proposals until reviewed and published. Changes apply to new events; previous awards stay in the ledger.')}</p>
       <p className="muted">{t('Create the agreed Evo Points proposal while keeping scoring paused. Existing published rules and past awards stay in place.')}</p>
       <fieldset disabled={busy} style={{ border: 0, padding: 0, minWidth: 0 }}>
       <p><strong>{t('Editing source v{version}', { version: sourceRevision?.version ?? overview.current.version })}</strong> · {t(sourceRevision?.status ?? 'PUBLISHED')} · {baseVersion > 0 ? t('Based on published v{version}', { version: baseVersion }) : t('Unknown base version (legacy draft)')}</p>
@@ -111,21 +125,26 @@ export function PointsPanel({ api, active, refreshKey, locale, t }: { api: Api; 
         }}>{t('Publish XP rules')}</button>}
       </>}
       </fieldset>
+      </details>
     </section>
-    <section><h2>{t('XP rule history')}</h2>{overview.revisions.map(revision => {
+    <PointsLedger api={api} refreshKey={ledgerRefresh} locale={locale} t={t} onMember={setMember}/>
+    {historyOpen && <PointsDialog title={t('XP rule history')} closeLabel={t('Close')} onClose={() => setHistoryOpen(false)}>
+      {error && <p className="error" role="alert">{translateError(locale, error)}</p>}
+      {history ? <>{history.entries.map(revision => {
       const outdated = ['DRAFT','APPROVED'].includes(revision.status) && (revision.base_version !== overview.current.version || revision.version <= overview.current.version);
       return <div className="revision" key={revision.id}><div><strong>v{revision.version}</strong> <span className="badge">{t(outdated ? 'Outdated draft' : revision.status)}</span>{sourceRevision?.id === revision.id && <span className="badge">{t('In editor')}</span>}<p>{revision.reason}</p><small>{t('Author')}: {revision.authored_by} · {t('Approved by')}: {revision.approved_by ?? '—'}</small></div><div>
-        <button disabled={busy} onClick={() => { if (mayReplace()) edit(revision); }}>{t('Load into editor')}</button>
+        <button disabled={busy} onClick={() => { if (mayReplace()) { edit(revision); setHistoryOpen(false); setRulesOpen(true); } }}>{t('Load into editor')}</button>
         {(outdated || revision.status === 'SUPERSEDED') && <button disabled={busy} onClick={() => { if (!mayReplace()) return; void run(async () => {
           const copy = await api<Revision>('/xp/drafts', 'POST', { config: revision.body, reason: `Restore rules v${revision.version} as a new draft`, expectedVersion: overview.current.version });
-          edit(copy); await load(); setNotice('XP draft saved. Review, approve and publish it below.');
+          edit(copy); setHistoryOpen(false); setRulesOpen(true); await load(); setNotice('XP draft saved. Review, approve and publish it below.');
         }); }}>{t('Restore as draft')}</button>}
       </div></div>;
-    })}</section>
-    <div className="two-col"><section><h2>{t('Manual XP adjustment')}</h2><p className="muted">{t('Corrections create signed ledger entries. A reason is required; balances cannot become negative.')}</p><form onSubmit={e => { e.preventDefault(); if (!window.confirm(t('Record this XP adjustment?'))) return; void run(async () => { await api('/xp/adjustments', 'POST', { userId: target, amount, reason: adjustReason, requestKey }); await load(); setRequestKey(crypto.randomUUID()); setAdjustReason(''); setNotice('XP adjustment recorded.'); }); }}><label>{t('Discord user ID')}<input required pattern="[0-9]{17,20}" value={target} onChange={e => setTarget(e.target.value)}/></label><label>{t('XP amount (negative to deduct)')}<input required type="number" min={-10000} max={10000} value={amount} onChange={e => setAmount(Number(e.target.value))}/></label><label>{t('Reason')}<textarea required minLength={5} maxLength={500} value={adjustReason} onChange={e => setAdjustReason(e.target.value)}/></label><button disabled={busy || !overview.current.body.enabled}>{t('Record adjustment')}</button></form></section>
-    <section><h2>{t('Reviewed contribution')}</h2><p className="muted">{t('Use one stable source ID per reviewed issue, creation or event. Replaying it does not award twice.')}</p><form onSubmit={e => { e.preventDefault(); void run(async () => { const result = await api('/xp/contributions', 'POST', { userId: target, event, source, reason: reviewReason }); if (!result.awarded) { setError(String(result.reason)); return; } await load(); setNotice('Contribution XP awarded.'); }); }}><label>{t('Discord user ID')}<input required pattern="[0-9]{17,20}" value={target} onChange={e => setTarget(e.target.value)}/></label><label>{t('Contribution type')}<select value={event} onChange={e => setEvent(e.target.value)}>{['creation','confirmed_issue','featured','event'].map(value => <option key={value} value={value}>{t(`xp.event.${value}`)}</option>)}</select></label><label>{t('Unique source ID')}<input required pattern="[a-zA-Z0-9:_-]{5,120}" value={source} onChange={e => setSource(e.target.value)}/></label><label>{t('Review reason')}<textarea required minLength={5} maxLength={500} value={reviewReason} onChange={e => setReviewReason(e.target.value)}/></label><button disabled={busy || !overview.current.body.enabled}>{t('Award reviewed contribution')}</button></form></section></div>
-    <section><h2>{t('XP leaderboard')}</h2><label>{t('Period')}<select value={period} onChange={e => setPeriod(e.target.value as XpPeriod)}>{['weekly','monthly','all_time'].map(value => <option key={value} value={value}>{t(value)}</option>)}</select></label><button disabled={busy} onClick={() => void run(async () => { const result = await api<{ entries: Row[] }>(`/xp/leaderboard?period=${period}`); setBoard(result.entries); })}>{t('Load leaderboard')}</button>{board.map(row => <p key={String(row.user_id)}>#{String(row.rank)} · {String(row.user_id)} · {String(row.xp)} XP</p>)}</section>
-    <section><h2>{t('XP ledger')}</h2><p className="muted">{t('Latest 100 entries. History commands show only the requesting member’s own entries.')}</p><div className="table-scroll"><table><thead><tr>{['Date','Member','XP','Source','Reason','Rule version','Operator'].map(value => <th key={value}>{t(value)}</th>)}</tr></thead><tbody>{overview.ledger.map(row => <tr key={String(row.id)}><td>{formatDate(locale, row.occurred_at)}</td><td>{String(row.user_id)}</td><td>{Number(row.amount) > 0 ? '+' : ''}{String(row.amount)}</td><td>{String(row.source_key)}</td><td>{String(row.reason)}</td><td>v{String(row.rule_version)}</td><td>{String(row.actor_id)}</td></tr>)}</tbody></table></div>{overview.ledger.length === 0 && <p>{t('No XP entries yet.')}</p>}</section>
-    <section><h2>{t('Boost verification')}</h2><p className="muted">{t('Requires Server Members Intent and the worker. Historical Boosts are not automatically backfilled. Cancellation stops future awards; past XP remains.')}</p>{overview.boosts.map(row => <p key={String(row.user_id)}>{String(row.user_id)} · {t(row.active ? 'Active' : 'Inactive')} · {t('Next check')}: {formatDate(locale, row.next_check_at)}{row.last_error_code ? ` · ${String(row.last_error_code)}` : ''}</p>)}</section>
+    })}<PointsPagination data={history} busy={historyBusy || busy} load={page => { void loadHistory(page); }} t={t}/></> : <p>{t('Loading…')}</p>}
+    </PointsDialog>}
+    {member && <PointsMemberDialog key={member} userId={member} api={api} locale={locale} t={t} onClose={() => setMember(null)}/>}
+    <details className="points-tools"><summary>{t('Adjustments and contributions')}</summary><div className="two-col"><section><h2>{t('Manual XP adjustment')}</h2><p className="muted">{t('Corrections create signed ledger entries. A reason is required; balances cannot become negative.')}</p><form onSubmit={e => { e.preventDefault(); if (!window.confirm(t('Record this XP adjustment?'))) return; void run(async () => { await api('/xp/adjustments', 'POST', { userId: target, amount, reason: adjustReason, requestKey }); await load(); setRequestKey(crypto.randomUUID()); setAdjustReason(''); setNotice('XP adjustment recorded.'); }); }}><label>{t('Discord user ID')}<input required pattern="[0-9]{17,20}" value={target} onChange={e => setTarget(e.target.value)}/></label><label>{t('XP amount (negative to deduct)')}<input required type="number" min={-10000} max={10000} value={amount} onChange={e => setAmount(Number(e.target.value))}/></label><label>{t('Reason')}<textarea required minLength={5} maxLength={500} value={adjustReason} onChange={e => setAdjustReason(e.target.value)}/></label><button disabled={busy || !overview.current.body.enabled}>{t('Record adjustment')}</button></form></section>
+    <section><h2>{t('Reviewed contribution')}</h2><p className="muted">{t('Use one stable source ID per reviewed issue, creation or event. Replaying it does not award twice.')}</p><form onSubmit={e => { e.preventDefault(); void run(async () => { const result = await api('/xp/contributions', 'POST', { userId: target, event, source, reason: reviewReason }); if (!result.awarded) { setError(String(result.reason)); return; } await load(); setNotice('Contribution XP awarded.'); }); }}><label>{t('Discord user ID')}<input required pattern="[0-9]{17,20}" value={target} onChange={e => setTarget(e.target.value)}/></label><label>{t('Contribution type')}<select value={event} onChange={e => setEvent(e.target.value)}>{['creation','confirmed_issue','featured','event'].map(value => <option key={value} value={value}>{t(`xp.event.${value}`)}</option>)}</select></label><label>{t('Unique source ID')}<input required pattern="[a-zA-Z0-9:_-]{5,120}" value={source} onChange={e => setSource(e.target.value)}/></label><label>{t('Review reason')}<textarea required minLength={5} maxLength={500} value={reviewReason} onChange={e => setReviewReason(e.target.value)}/></label><button disabled={busy || !overview.current.body.enabled}>{t('Award reviewed contribution')}</button></form></section></div></details>
+    <details className="points-tools"><summary>{t('XP leaderboard')}</summary><label>{t('Period')}<select value={period} onChange={e => setPeriod(e.target.value as XpPeriod)}>{['weekly','monthly','all_time'].map(value => <option key={value} value={value}>{t(value)}</option>)}</select></label><button disabled={busy} onClick={() => void run(async () => { const result = await api<{ entries: Row[] }>(`/xp/leaderboard?period=${period}`); setBoard(result.entries); })}>{t('Load leaderboard')}</button>{board.map(row => <p key={String(row.user_id)}>#{String(row.rank)} · <button className="link-button" onClick={() => setMember(String(row.user_id))}>{String(row.user_id)}</button> · {String(row.xp)} XP</p>)}</details>
+    <details className="points-tools"><summary>{t('Boost verification')}</summary><p className="muted">{t('Requires Server Members Intent and the worker. Historical Boosts are not automatically backfilled. Cancellation stops future awards; past XP remains.')}</p>{overview.boosts.map(row => <p key={String(row.user_id)}>{String(row.user_id)} · {t(row.active ? 'Active' : 'Inactive')} · {t('Next check')}: {formatDate(locale, row.next_check_at)}{row.last_error_code ? ` · ${String(row.last_error_code)}` : ''}</p>)}</details>
   </>;
 }

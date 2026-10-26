@@ -38,7 +38,7 @@ async function enable(change: (config: XpConfig) => void = () => {}) {
 beforeAll(async () => { db = await openDatabase(process.env.TEST_DATABASE_URL, 'memory://'); await migrate(db); });
 afterAll(async () => { await db.close(); });
 beforeEach(async () => {
-  await db.query('TRUNCATE xp_ledger,xp_boost_state,xp_rule_revision RESTART IDENTITY CASCADE');
+  await db.query('TRUNCATE xp_participant,xp_ledger,xp_boost_state,xp_rule_revision RESTART IDENTITY CASCADE');
   xp = new XpService(db); await xp.initialize(); messageNumber = 0;
 });
 
@@ -287,6 +287,82 @@ describe('XP rules, ledger and fairness', () => {
     expect(periodStart(new Date('2026-11-01T17:00:00Z'), 'weekly', 'Asia/Shanghai')).toBe('2026-11-02');
     expect(periodStart(new Date('2026-10-31T17:00:00Z'), 'monthly', 'Asia/Shanghai')).toBe('2026-11-01');
     expect(periodStart(new Date(), 'all_time', 'UTC')).toBeNull();
+  });
+});
+
+describe('Community participation and administrative queries', () => {
+  it('keeps admin earnings through every path, excludes only their ranking and preserves ledger history', async () => {
+    await enable();
+    await xp.adjust(admin, { userId: user, amount: 100, requestKey: randomUUID(), reason: 'Historical administrator test points' });
+    await xp.adjust(admin, { userId: other, amount: 50, requestKey: randomUUID(), reason: 'Ordinary community contribution' });
+    xp = new XpService(db, async target => ({ canEarn: true, canRank: target !== user }));
+    expect((await xp.message(message('A new administrator message still earns points'))).amount).toBe(10);
+    expect((await xp.reviewed(admin, { userId: user, event: 'creation', source: 'admin:creation', reason: 'Administrator creative contribution' })).amount).toBe(5);
+    await xp.adjust(admin, { userId: user, amount: 5, requestKey: randomUUID(), reason: 'Administrator participation is allowed' });
+    const since = new Date(Date.now() - 31 * 86400000);
+    await xp.observeBoost(user, since, true);
+    await db.query('UPDATE xp_boost_state SET next_cycle_at=$2 WHERE user_id=$1', [user, new Date(+since + 30 * 86400000)]);
+    await xp.checkBoosts(async () => since);
+    const board = await xp.leaderboard('all_time');
+    expect(board.entries).toEqual([{ user_id: other, xp: 50, rank: 1 }]);
+    expect(await xp.history(user)).toHaveLength(6);
+    const administrator = await xp.summary(user);
+    expect(administrator).toMatchObject({ lifetimeXp: 170, eligible: true, rankEligible: false, ranks: { weekly: null, monthly: null, all_time: null } });
+    await xp.adjust(admin, { userId: user, amount: -10, requestKey: randomUUID(), reason: 'Audited correction of admin points' });
+    expect((await xp.summary(user)).lifetimeXp).toBe(160);
+    expect((await xp.message({ ...message('A new ordinary community post still earns points'), user: other })).amount).toBe(10);
+    for (const period of ['weekly','monthly','all_time'] as const) expect((await xp.leaderboard(period)).entries.every(row => row.user_id !== user)).toBe(true);
+  });
+
+  it('changes admin ranking eligibility without stopping earnings or re-awarding the first-message bonus', async () => {
+    await enable(config => config.rules.forEach(rule => { rule.cooldownSeconds = 0; }));
+    let isAdmin = false;
+    xp = new XpService(db, async () => ({ canEarn: true, canRank: !isAdmin }));
+    expect((await xp.message(message('An ordinary first message earns the initial bonus'))).amount).toBe(10);
+    isAdmin = true; await xp.refreshParticipant(user, true);
+    expect((await xp.message(message('This post was written after becoming an administrator'))).amount).toBe(5);
+    expect((await xp.leaderboard()).entries).toHaveLength(0);
+    isAdmin = false; await xp.refreshParticipant(user, true);
+    expect((await xp.message(message('A returning moderator gets no second first bonus'))).amount).toBe(5);
+    expect((await xp.leaderboard()).entries[0]).toMatchObject({ user_id: user, rank: 1, xp: 20 });
+    expect(await xp.history(user)).toHaveLength(3);
+  });
+
+  it('does not infer eligibility or award points when membership verification fails', async () => {
+    await enable();
+    xp = new XpService(db, async () => { throw new Error('Remote lookup unavailable'); });
+    await expect(xp.message(message('A valid message while identity lookup is unavailable'))).rejects.toMatchObject({ code: 'XP_ELIGIBILITY_UNAVAILABLE' });
+    await expect(xp.reviewed(admin, { userId: user, event: 'creation', source: 'lookup:failure', reason: 'Remote verification is required' })).rejects.toMatchObject({ code: 'XP_ELIGIBILITY_UNAVAILABLE' });
+    expect(await xp.history(user)).toHaveLength(0);
+  });
+
+  it('paginates and filters the full ledger by member, event and published timezone, and guards member summaries', async () => {
+    await enable();
+    for (let i = 0; i < 125; i++) await xp.adjust(admin, { userId: user, amount: 1, requestKey: randomUUID(), reason: `Ledger query fixture number ${i}` });
+    const otherEntry = await xp.adjust(admin, { userId: other, amount: 2, requestKey: randomUUID(), reason: 'Second member at local midnight' });
+    await db.query("UPDATE xp_ledger SET occurred_at='2026-01-01T00:00:00Z'");
+    await db.query("UPDATE xp_ledger SET occurred_at='2026-01-31T16:00:00Z' WHERE id=$1", [otherEntry.id]);
+    const first = await xp.ledger(admin, {});
+    const second = await xp.ledger(admin, { page: 7 });
+    expect(first.total).toBe(126); expect(first.entries).toHaveLength(20); expect(second.entries).toHaveLength(6);
+    const allPages = await Promise.all(Array.from({ length: 7 }, (_, index) => xp.ledger(admin, { page: index + 1 })));
+    expect(new Set(allPages.flatMap(page => page.entries.map(row => row.id))).size).toBe(126);
+    const filtered = await xp.ledger(admin, { event: 'manual', from: '2026-02-01', to: '2026-02-01' });
+    expect(filtered.entries.map(row => row.user_id)).toEqual([other]);
+    expect((await xp.ledger(admin, { memberId: user })).total).toBe(125);
+    const member = await xp.member(admin, user, { page: 7 });
+    expect(member.summary.lifetimeXp).toBe(125); expect(member.ledger.entries).toHaveLength(5);
+    expect(member.ledger.entries.every(row => row.user_id === user)).toBe(true);
+    await expect(xp.ledger(mod, {})).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(xp.member(mod, user, {})).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(xp.revisions(mod, {})).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(xp.ledger(admin, { from: '2026-02-02', to: '2026-01-01' })).rejects.toMatchObject({ code: 'XP_DATE_RANGE' });
+    await expect(xp.ledger(admin, { memberId: "' OR 1=1 --" })).rejects.toThrow();
+    await expect(xp.ledger(admin, { from: '2026-02-30' })).rejects.toThrow();
+    for (let i = 0; i < 14; i++) await xp.proposal(admin);
+    const versions = await xp.revisions(admin, {});
+    expect(versions.total).toBe(16); expect(versions.entries).toHaveLength(10);
+    expect((await xp.revisions(admin, { page: 2 })).entries).toHaveLength(6);
   });
 });
 

@@ -1,9 +1,15 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+async function openRules(page: Page) {
+  const summary = page.getByText('Edit XP rules', { exact: true });
+  if (await summary.locator('..').getAttribute('open') === null) await summary.click();
+}
 
 test('creates a reviewable Evo Points proposal and keeps scoring paused until explicitly changed', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Enter as SUPER ADMIN' }).click();
   await page.getByRole('button', { name: 'XP & Rewards', exact: true }).click();
+  await openRules(page);
   const creation = page.locator('.xp-rule').filter({ has: page.locator('summary').filter({ hasText: 'Creation' }) });
   await creation.locator('summary').click();
   await creation.getByLabel('XP per award').fill('15');
@@ -38,6 +44,7 @@ test('staff can review XP rules, award a contribution once and inspect bilingual
   await page.goto('/');
   await page.getByRole('button', { name: 'Enter as SUPER ADMIN' }).click();
   await page.getByRole('button', { name: 'XP & Rewards', exact: true }).click();
+  await openRules(page);
   await expect(page.getByText('Scoring disabled', { exact: true })).toBeVisible();
   await page.getByLabel('Enable XP scoring', { exact: true }).check();
   const creation = page.locator('.xp-rule').filter({ has: page.locator('summary').filter({ hasText: 'Creation' }) });
@@ -50,6 +57,7 @@ test('staff can review XP rules, award a contribution once and inspect bilingual
   await page.getByLabel('Reason for rule change').fill('Reviewed E2E contribution rewards');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'XP & Rewards', exact: true }).click();
+  await openRules(page);
   await expect(page.getByLabel('Enable XP scoring', { exact: true })).toBeChecked();
   await page.getByRole('button', { name: 'Save XP rules draft', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('XP draft saved');
@@ -60,6 +68,7 @@ test('staff can review XP rules, award a contribution once and inspect bilingual
   await expect(page.getByText('Scoring enabled', { exact: true })).toBeVisible();
   expect((await (await page.request.get('/api/xp/rules')).json()).body.excludedCategoryIds).toEqual(['1560526464481501345', '1560526751317106819', '1560526680613716068']);
 
+  await page.getByText('Adjustments and contributions', { exact: true }).click();
   const adjustment = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Manual XP adjustment', exact: true }) });
   await adjustment.getByLabel('Discord user ID').fill('123456789012345678');
   await adjustment.getByLabel('XP amount').fill('25');
@@ -75,6 +84,7 @@ test('staff can review XP rules, award a contribution once and inspect bilingual
   await reviewed.getByRole('button', { name: 'Award reviewed contribution', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('DUPLICATE_EVENT');
   await expect(page.locator('.table-scroll tbody tr')).toHaveCount(2);
+  await page.getByText('XP leaderboard', { exact: true }).click();
   await page.getByRole('combobox', { name: 'Period', exact: true }).selectOption('all_time');
   await page.getByRole('button', { name: 'Load leaderboard' }).click();
   await expect(page.getByText('#1 · 123456789012345678 · 30 XP', { exact: true })).toBeVisible();
@@ -95,6 +105,7 @@ test('Support cannot access XP management', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Your community, at a glance.' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'XP & Rewards', exact: true })).toHaveCount(0);
   expect((await page.request.get('/api/xp/config')).status()).toBe(403);
+  for (const path of ['/api/xp/ledger', '/api/xp/revisions', '/api/xp/members/123456789012345678']) expect((await page.request.get(path)).status()).toBe(403);
   expect((await page.request.get('/api/xp/me')).status()).toBe(200);
 });
 
@@ -102,6 +113,7 @@ test('edits and reapproves one selected draft, publishes its saved values, and b
   await page.goto('/');
   await page.getByRole('button', { name: 'Enter as SUPER ADMIN' }).click();
   await page.getByRole('button', { name: 'XP & Rewards', exact: true }).click();
+  await openRules(page);
   await page.getByRole('button', { name: 'Create Evo Points draft', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Evo Points draft created');
   const initial = await (await page.request.get('/api/xp/config')).json();
@@ -112,8 +124,10 @@ test('edits and reapproves one selected draft, publishes its saved values, and b
   await page.getByLabel('Enable XP scoring', { exact: true }).check();
   await creation.getByLabel('XP per award').fill('7');
   await page.getByLabel('Reason for rule change').fill('Review selected draft rather than create duplicates');
+  await page.getByRole('button', { name: 'XP rule history', exact: true }).click();
   page.once('dialog', dialog => dialog.dismiss());
   await page.locator('.revision').filter({ has: page.getByText(`v${initial.current.version}`, { exact: true }) }).getByRole('button', { name: 'Load into editor', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
   await expect(creation.getByLabel('XP per award')).toHaveValue('7');
   await expect(page.getByLabel('Reason for rule change')).toHaveValue('Review selected draft rather than create duplicates');
   await expect(page.getByRole('button', { name: 'Approve XP rules', exact: true })).toBeDisabled();
@@ -149,17 +163,20 @@ test('edits and reapproves one selected draft, publishes its saved values, and b
   await page.getByRole('button', { name: 'Create Evo Points draft', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Evo Points draft created');
   const b = (await (await page.request.get('/api/xp/config')).json()).revisions[0];
+  await page.getByRole('button', { name: 'XP rule history', exact: true }).click();
   const rowA = page.locator('.revision').filter({ has: page.getByText(`v${a.version}`, { exact: true }) });
   await rowA.getByRole('button', { name: 'Load into editor', exact: true }).click();
   await page.getByRole('button', { name: 'Approve XP rules', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('XP rules approved');
   await page.getByRole('button', { name: 'Publish XP rules', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('XP rules published');
+  await page.getByRole('button', { name: 'XP rule history', exact: true }).click();
   const rowB = page.locator('.revision').filter({ has: page.getByText(`v${b.version}`, { exact: true }) });
   await expect(rowB.getByText('Outdated draft', { exact: true })).toBeVisible();
   await rowB.getByRole('button', { name: 'Load into editor', exact: true }).click();
   await expect(page.getByText('This draft is outdated. Copy it as a new draft based on the current published rules.', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Approve XP rules', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'XP rule history', exact: true }).click();
   await rowB.getByRole('button', { name: 'Restore as draft', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('XP draft saved');
   const copied = (await (await page.request.get('/api/xp/config')).json()).revisions[0];
@@ -177,6 +194,7 @@ test('toggling scoring by pointer or keyboard never creates a draft or changes p
   await page.goto('/');
   await page.getByRole('button', { name: 'Enter as SUPER ADMIN' }).click();
   await page.getByRole('button', { name: 'XP & Rewards', exact: true }).click();
+  await openRules(page);
   const toggle = page.getByLabel('Enable XP scoring', { exact: true });
   await expect(toggle).toBeVisible();
   const read = async () => (await (await page.request.get('/api/xp/config')).json());
@@ -201,4 +219,67 @@ test('toggling scoring by pointer or keyboard never creates a draft or changes p
     expect(after.revisions).toEqual(before.revisions);
   }
   await expect(page.getByText('Changing this switch only edits local values. It does not create or publish a draft; save explicitly when ready.', { exact: true })).toBeVisible();
+});
+
+test('keeps operations compact and queries paginated ledger, member summaries and version history', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Enter as SUPER ADMIN' }).click();
+  const session = await (await page.request.get('/api/session')).json();
+  const headers = { origin: 'http://localhost:5173', 'x-csrf-token': session.csrf };
+  const current = await (await page.request.get('/api/xp/rules')).json();
+  const draft = await (await page.request.post('/api/xp/drafts', { headers, data: { config: { ...current.body, enabled: true }, reason: 'Browser query acceptance setup', expectedVersion: current.version } })).json();
+  expect((await page.request.post(`/api/xp/${draft.id}/approve`, { headers, data: { expectedEditVersion: 1 } })).ok()).toBe(true);
+  expect((await page.request.post(`/api/xp/${draft.id}/publish`, { headers, data: { expectedVersion: current.version, expectedEditVersion: 1, confirm: true } })).ok()).toBe(true);
+  const member = '623456789012345678';
+  for (let i = 0; i < 23; i++) {
+    const result = await page.request.post('/api/xp/adjustments', { headers, data: { userId: member, amount: 1, reason: `Ledger modal acceptance ${i}`, requestKey: crypto.randomUUID() } });
+    expect(result.ok()).toBe(true);
+  }
+  for (let i = 0; i < 22; i++) expect((await page.request.post('/api/xp/proposal', { headers, data: {} })).ok()).toBe(true);
+  await page.getByRole('button', { name: 'XP & Rewards', exact: true }).click();
+  await expect(page.getByLabel('Enable XP scoring', { exact: true })).not.toBeVisible();
+  await expect(page.locator('.revision')).toHaveCount(0);
+  const ledger = page.locator('section').filter({ has: page.getByRole('heading', { name: 'XP ledger', exact: true }) });
+  await expect(ledger.getByRole('heading', { name: 'XP ledger', exact: true })).toBeVisible();
+  expect((await ledger.boundingBox())!.y).toBeLessThan(500);
+  await ledger.getByLabel('Member ID filter').fill(member);
+  await ledger.getByRole('button', { name: 'Search points', exact: true }).click();
+  await expect(ledger.getByText('Page 1 of 2 · 23 records', { exact: true })).toBeVisible();
+  await expect(ledger.locator('tbody tr')).toHaveCount(20);
+  await ledger.getByRole('button', { name: 'Next page', exact: true }).click();
+  await expect(ledger.locator('tbody tr')).toHaveCount(3);
+  await ledger.getByRole('button', { name: member, exact: true }).first().click();
+  const profile = page.getByRole('dialog', { name: 'Member points summary', exact: true });
+  await expect(profile.getByRole('heading', { name: 'Member points summary' })).toBeVisible();
+  await expect(profile.locator('article').filter({ hasText: 'Total points' }).getByText('23', { exact: true })).toBeVisible();
+  await expect(profile.locator('tbody tr')).toHaveCount(20);
+  await profile.getByRole('button', { name: 'Next page', exact: true }).click();
+  await expect(profile.locator('tbody tr')).toHaveCount(3);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await ledger.getByLabel('Points type').selectOption('creation');
+  await ledger.getByRole('button', { name: 'Search points', exact: true }).click();
+  await expect(ledger.getByText('No matching points records.', { exact: true })).toBeVisible();
+  await expect(ledger.getByRole('button', { name: 'Next page', exact: true })).toBeDisabled();
+  await ledger.getByRole('button', { name: 'Clear filters', exact: true }).click();
+  await expect(ledger.getByLabel('Member ID filter')).toHaveValue('');
+  await expect(ledger.locator('tbody tr')).toHaveCount(20);
+  await page.getByRole('button', { name: 'XP rule history', exact: true }).click();
+  const history = page.getByRole('dialog', { name: 'XP rule history', exact: true });
+  await expect(history.locator('.revision')).toHaveCount(10);
+  await history.getByRole('button', { name: 'Next page', exact: true }).click();
+  await expect(history.locator('.revision')).toHaveCount(10);
+  await history.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.locator('.revision')).toHaveCount(0);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: 'test-results/points-operations-desktop.png', fullPage: true });
+  await page.getByLabel('语言 / Language').selectOption('zh-CN');
+  await page.setViewportSize({ width: 390, height: 844 });
+  const zhLedger = page.locator('section').filter({ has: page.getByRole('heading', { name: '积分流水', exact: true }) });
+  await zhLedger.getByLabel('成员 ID 筛选').fill(member);
+  await zhLedger.getByRole('button', { name: '查询积分', exact: true }).click();
+  await zhLedger.getByRole('button', { name: member, exact: true }).first().click();
+  await expect(page.getByRole('dialog', { name: '成员积分汇总', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/points-operations-member-mobile.png', fullPage: true });
 });

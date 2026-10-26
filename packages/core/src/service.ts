@@ -15,7 +15,7 @@ const ticketInput = z.object({ category: z.enum(['Bug', 'Creation Help', 'Accoun
 
 export class CommunityService {
   readonly xp: XpService;
-  constructor(readonly db: Database, readonly transport: Transport, readonly mock = true, readonly prompts: PromptProvider = new TemplatePromptProvider()) { this.xp = new XpService(db); }
+  constructor(readonly db: Database, readonly transport: Transport, readonly mock = true, readonly prompts: PromptProvider = new TemplatePromptProvider()) { this.xp = new XpService(db, transport.xpParticipant?.bind(transport)); }
   async audit(tx: Queryable, actor: string, action: string, entity: string | null = null, detail: Row = {}) {
     await tx.query('INSERT INTO audit_log(id,actor_id,action,entity_id,detail) VALUES($1,$2,$3,$4,$5)', [randomUUID(), actor, action, entity, JSON.stringify(detail)]);
   }

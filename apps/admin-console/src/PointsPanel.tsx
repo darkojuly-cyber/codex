@@ -72,12 +72,12 @@ export function PointsPanel({ api, active, refreshKey, locale, t }: { api: Api; 
       {stale && <p className="error">{t('This draft is outdated. Copy it as a new draft based on the current published rules.')}</p>}
       {!pending && baseVersion !== overview.current.version && <p className="error">{t('Published rules changed. Load the current published version before creating a draft.')}</p>}
       {conflict && <p className="error">{t('This draft changed elsewhere. Load it again before continuing; your local edits are still here.')}</p>}
-      <button disabled={busy} onClick={() => { if (!mayReplace()) return; void run(async () => {
+      <div className="xp-preset-action"><button type="button" disabled={busy} onClick={() => { if (!mayReplace()) return; void run(async () => {
         const revision = await api<Revision>('/xp/proposal', 'POST', {});
         edit(revision); await load();
         setNotice('Evo Points draft created. Review, approve and publish it below.');
-      }); }}>{t('Create Evo Points draft')}</button>
-      <label className="checkbox"><input type="checkbox" checked={config.enabled} onChange={e => setConfig({ ...config, enabled: e.target.checked })}/>{t('Enable XP scoring')}</label><p className="muted">{t('This switch applies to the draft only until publication.')}</p>
+      }); }}>{t('Create Evo Points draft')}</button></div>
+      <div className="xp-scoring-toggle"><label className="checkbox" htmlFor="xp-scoring-enabled"><input id="xp-scoring-enabled" type="checkbox" checked={config.enabled} onChange={e => setConfig({ ...config, enabled: e.target.checked })}/>{t('Enable XP scoring')}</label><p className="muted">{t('Changing this switch only edits local values. It does not create or publish a draft; save explicitly when ready.')}</p></div>
       <div className="form-grid"><label>{t('XP timezone')}<input value={config.timezone} onChange={e => setConfig({ ...config, timezone: e.target.value })}/></label>
       <label>{t('Minimum meaningful characters')}<input type="number" min={5} max={200} value={config.minimumCharacters} onChange={e => setConfig({ ...config, minimumCharacters: Number(e.target.value) })}/></label>
       <label>{t('Level thresholds (comma separated, starts at 0)')}<input value={config.levelThresholds.join(',')} onChange={e => setConfig({ ...config, levelThresholds: e.target.value.split(',').map(Number) })}/></label></div>

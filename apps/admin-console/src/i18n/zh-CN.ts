@@ -1,5 +1,7 @@
 /** Console copy only. User-authored content, Discord templates and protocol values stay intact. */
 export const zhCN: Record<string, string> = {
+  'Changing this switch only edits local values. It does not create or publish a draft; save explicitly when ready.': '此开关只修改本地编辑值，不会创建或发布草稿；确认修改后，请手动保存。',
+
   "Discard unsaved XP edits?": "放弃尚未保存的积分规则修改，载入另一版本？",
   "Editing source v{version}": "正在编辑来源版本 v{version}",
   "Based on published v{version}": "基于已发布 v{version}",

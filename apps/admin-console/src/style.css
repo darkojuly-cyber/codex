@@ -9,3 +9,8 @@ aside{overflow-y:auto}
 
 .xp-rules{display:grid;gap:10px;margin:20px 0}.xp-rule{border:1px solid #393143;border-radius:9px;padding:14px}.xp-rule summary{cursor:pointer;font-weight:600}.xp-rule summary .badge{margin-left:10px}.xp-rule[open] summary{margin-bottom:16px}.table-scroll{max-width:100%;overflow-x:auto}.table-scroll td{max-width:260px;overflow-wrap:anywhere}.revision>div{min-width:0;overflow-wrap:anywhere}.revision>div:last-child{display:flex;gap:8px;flex-wrap:wrap}button:disabled{opacity:.5;cursor:not-allowed}[hidden]{display:none!important}
 .table-scroll table{min-width:900px}.table-scroll td{min-width:95px}
+
+.xp-preset-action { display: block; margin: 0 0 1.25rem; }
+.xp-scoring-toggle { display: block; padding: 1rem; margin-bottom: 1.25rem; border: 1px solid var(--border, #36323f); border-radius: 10px; }
+.xp-scoring-toggle .checkbox { display: flex; width: fit-content; margin: 0; }
+.xp-scoring-toggle p { margin: .5rem 0 0; }

@@ -172,3 +172,33 @@ test('edits and reapproves one selected draft, publishes its saved values, and b
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/xp-revision-workflow.png', fullPage: true });
 });
+
+test('toggling scoring by pointer or keyboard never creates a draft or changes published rules', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Enter as SUPER ADMIN' }).click();
+  await page.getByRole('button', { name: 'XP & Rewards', exact: true }).click();
+  const toggle = page.getByLabel('Enable XP scoring', { exact: true });
+  await expect(toggle).toBeVisible();
+  const read = async () => (await (await page.request.get('/api/xp/config')).json());
+  const before = await read();
+  const writes: string[] = [];
+  page.on('request', request => {
+    if (request.url().includes('/api/xp/') && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method())) writes.push(`${request.method()} ${request.url()}`);
+  });
+  for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    const checked = await toggle.isChecked();
+    // Click the text as a person would, not just set the input programmatically.
+    await page.getByText('Enable XP scoring', { exact: true }).click();
+    await expect(toggle).toBeChecked({ checked: !checked });
+    await toggle.focus(); await toggle.press('Space');
+    await expect(toggle).toBeChecked({ checked });
+    await toggle.click();
+    await expect(toggle).toBeChecked({ checked: !checked });
+    expect(writes).toEqual([]);
+    const after = await read();
+    expect(after.current).toEqual(before.current);
+    expect(after.revisions).toEqual(before.revisions);
+  }
+  await expect(page.getByText('Changing this switch only edits local values. It does not create or publish a draft; save explicitly when ready.', { exact: true })).toBeVisible();
+});

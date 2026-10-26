@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { Database, Queryable } from '../../db/src.js';
 import { AppError, type Actor } from './config.js';
-import { xpConfigSchema, xpDefaults, periodStart, type XpConfig, type XpEvent, type XpRule, type XpPeriod } from './xp-config.js';
+import { xpConfigSchema, xpDefaults, evoPointsProposal, periodStart, type XpConfig, type XpEvent, type XpRule, type XpPeriod } from './xp-config.js';
 
 type Row = Record<string, unknown>;
 export type XpRevision = { id: string; version: number; status: string; body: XpConfig; published_at: Date | string | null };
@@ -44,6 +44,11 @@ export class XpService {
       await this.audit(tx, actor.id, 'xp.rules_drafted', String(row.id));
       return row;
     });
+  }
+  async proposal(actor: Actor) {
+    this.requireManager(actor);
+    const current = await this.current();
+    return this.draft(actor, { config: evoPointsProposal(current.body), reason: 'Evo Points community preset — review before publication' });
   }
   async approve(actor: Actor, id: string) {
     this.requireManager(actor);

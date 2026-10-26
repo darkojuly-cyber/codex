@@ -10,11 +10,11 @@
 - 人工审核作品、有效问题、精选贡献、活动参与。问题/作品/精选来源全局去重；同一活动每位成员只能领取一次。来源 ID 应由运营稳定命名，不能每次重新随机生成。
 - Boost 成员更新监听和 Worker REST 核查：首次有效资格、每完整连续 30 天奖励、取消后停发。按用户有效状态计分，不按 Boost 个数累加；不会自动授予管理角色。
 - 等级、周榜、月榜、总榜；周从配置时区的周一开始，月从 1 日开始。账本实时汇总，不删除历史或重置总分。并列积分同名次，分页以成员 ID 稳定排序。
-- `/points rules [page]`、`/points history [page]`、`/rank`、`/leaderboard [period] [page]`，以及欢迎卡的 **XP Rules** 按钮。响应仅自己可见，榜单提及不会 ping 用户。历史查询仅本人。
+- `/points rules [page]`、`/points history [page]`、`/rank`、`/leaderboard [period] [page]`，以及欢迎卡的 **Evo Points** 按钮及成员卡的 **My Points / Weekly Board / Monthly Board** 按钮。响应仅自己可见，榜单提及不会 ping 用户。历史查询仅本人。
 
 ## 默认状态与边界
 
-默认总开关和每条规则均关闭。规格中的数值被载入为可编辑的停用草案；没有因安装代码而批准任何实际奖励。等级门槛同样可编辑。必须检查后分别审核、发布并启用才会计分。
+默认计分总开关关闭。预设采用用户于 2026-10-26 确认的 Evo Points 数值，七类规则准备就绪，官方讨论和活动规则关闭。不会因安装代码而自动启用计分。等级门槛同样可编辑。已有数据库不会自动改写已发布规则；可点击“生成 Evo Points 规则草稿”，审核并发布保持暂停的新版，再单独决定启用计分。卡片定稿与同步步骤见 [EVO_POINTS_CARD.md](EVO_POINTS_CARD.md)。
 
 新规则只处理发布后的新事件，不追溯重算账本。等级门槛变更后会按当前门槛重新展示等级，账目金额不变。点击欢迎、灵感或提示词按钮不加分。作品、Bug 和活动不依据产品端数据自动判断，运营通过后台审核后奖励。
 
@@ -60,7 +60,7 @@ $env:MESSAGE_CONTENT_INTENT = "true"
 2. 总开关与需要的单条规则分别启用。消息类规则必须填写真实频道 ID；非消息规则不使用频道限制。
 3. 填写修改原因，保存积分规则草稿。
 4. 在版本历史载入并检查该草稿，点击“审核通过”，再点击“发布积分规则”。此流程独立于欢迎/生命周期配置。
-5. 在 Discord 使用 `/points rules`，核对版本、开关、数值及更新时间。没有自动发分需求时可保持总开关关闭，只测试查询。
+5. 在 Discord 使用 `/points rules`，核对面向成员的 Evo Points 卡片与三个按钮；版本、开关及更新时间在后台核对。没有自动发分需求时可保持总开关关闭，只测试查询。
 6. 人工加减分需填原因；审核贡献需填写真实成员 ID、贡献类型、固定来源 ID 及审核说明。记录在积分流水和全局审计中。
 
 ## API
@@ -74,6 +74,7 @@ $env:MESSAGE_CONTENT_INTENT = "true"
 | GET `/api/xp/me` | 当前员工本人积分、等级和名次 |
 | GET `/api/xp/history?page=1` | 当前员工本人最近流水 |
 | GET `/api/xp/leaderboard?period=weekly&page=1` | 每页 10 人榜单 |
+| POST `/api/xp/proposal` | 按确认分值生成规则草稿，保留当前频道/时区/等级门槛及有效时间，总开关关闭 |
 | POST `/api/xp/drafts` | `{config,reason}` 保存草稿 |
 | POST `/api/xp/:id/approve` | 审核草稿 |
 | POST `/api/xp/:id/publish` | `{expectedVersion,confirm:true}` 乐观锁发布 |

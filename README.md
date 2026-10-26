@@ -74,3 +74,5 @@ TEST_DATABASE_URL='postgresql://…专用测试库…' npm test
 积分规则、账本、等级、周月总榜和 Boost 核查已实现，默认计分关闭，使用方法见 [积分与奖励](docs/XP.md)。欢迎消息支持原生 Embed 卡片。Insights / AutoMod / Known Issues、DM 订阅、重复任务、通用图片/Embed 消息编辑器、多频道双人审批、完整数据保留与删除流程、付费 AI Provider 和生产观测仍属于后续里程碑。不做产品账号绑定 / VIP / 产品私有数据接口。
 
 原生 Discord Onboarding 与现有频道/角色始终保留；唯一可能新建的服务器资源是运营批准分类内、用户主动请求的私密工单频道。注册命令及 Gateway 写入必须显式开启，安装和 Mock 启动不连接 Discord。
+
+成员端积分卡片现统一为 **Evo Points**，含个人积分、周榜和月榜按钮。已有数据库可在后台生成确认分值的新草稿；安装源码不自动覆盖或启用现有计分。见 [成员卡片与更新步骤](docs/EVO_POINTS_CARD.md)。

@@ -82,6 +82,7 @@ export async function createApp(service: CommunityService, env: Env) {
     return service.xp.leaderboard(period, page);
   });
   app.post('/api/xp/drafts', request => service.xp.draft(request.actor, request.body));
+  app.post('/api/xp/proposal', request => service.xp.proposal(request.actor));
   app.post('/api/xp/:id/approve', request => service.xp.approve(request.actor, paramId(request)));
   app.post('/api/xp/:id/publish', request => {
     const { expectedVersion } = z.object({ expectedVersion: z.number().int().positive(), confirm: z.literal(true) }).strict().parse(request.body);

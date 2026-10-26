@@ -9,6 +9,7 @@ import { readEnv } from '../../../packages/core/src/env.js';
 import { showWelcome, providerErrorDetails } from './welcome.js';
 import { automaticWelcome } from './automatic-welcome.js';
 import { showPoints } from './points.js';
+import { pointsButtonIds } from './points-card.js';
 import { DiscordTransport } from '../../../packages/core/src/transport.js';
 
 const preflight = readEnv();
@@ -54,7 +55,7 @@ async function handle(interaction: Interaction) {
     if (interaction.commandName === 'ticket') return ticketModal(interaction);
   }
   if (interaction.isButton()) {
-    if (interaction.customId === 'xp:rules') return showPoints(interaction, service.xp);
+    if (pointsButtonIds.some(id => id === interaction.customId)) return showPoints(interaction, service.xp);
     if (interaction.customId === 'idea:another') return showIdea(interaction);
     if (interaction.customId === 'ticket:new') return ticketModal(interaction);
     if (interaction.customId === 'links:current') {

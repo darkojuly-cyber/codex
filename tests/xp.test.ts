@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { randomUUID } from 'node:crypto';
 import { openDatabase, migrate, type Database } from '../packages/db/src.js';
 import { XpService } from '../packages/core/src/xp.js';
-import { xpConfigSchema, xpDefaults, periodStart, type XpConfig } from '../packages/core/src/xp-config.js';
+import { xpConfigSchema, xpDefaults, evoPointsProposal, periodStart, type XpConfig } from '../packages/core/src/xp-config.js';
 import { type Actor } from '../packages/core/src/config.js';
 import { CommunityService } from '../packages/core/src/service.js';
 import { MockTransport } from '../packages/core/src/transport.js';
@@ -41,6 +41,34 @@ beforeEach(async () => {
 });
 
 describe('XP rules, ledger and fairness', () => {
+  it('stages the agreed Evo Points proposal without overwriting existing rules, channels, settings or balances', async () => {
+    const old = structuredClone(xpDefaults);
+    old.enabled = true; old.timezone = 'UTC'; old.levelThresholds = [0, 42, 500];
+    old.rules.find(rule => rule.event === 'creation')!.points = 15;
+    old.rules.find(rule => rule.event === 'creation')!.dailyCap = 15;
+    old.rules.find(rule => rule.event === 'chat')!.channels = [channel];
+    old.rules.find(rule => rule.event === 'chat')!.endsAt = '2030-01-01T00:00:00Z';
+    await db.query("UPDATE xp_rule_revision SET body=$1 WHERE status='PUBLISHED'", [JSON.stringify(old)]);
+    await xp.initialize();
+    expect((await xp.current()).body).toEqual(old);
+    await expect(xp.proposal(mod)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const staged = await xp.proposal(admin);
+    const body = staged.body as XpConfig;
+    expect(staged.status).toBe('DRAFT');
+    expect(body.enabled).toBe(false);
+    expect(body.timezone).toBe('UTC');
+    expect(body.levelThresholds).toEqual([0, 42, 500]);
+    expect(body.rules.find(rule => rule.event === 'chat')!.channels).toEqual([channel]);
+    expect(body.rules.find(rule => rule.event === 'chat')!.endsAt).toBe('2030-01-01T00:00:00Z');
+    expect(body.rules.filter(rule => rule.enabled).map(rule => [rule.event, rule.points, rule.dailyCap])).toEqual([
+      ['first_message',10,10], ['chat',2,20], ['creation',5,20], ['confirmed_issue',3,18], ['featured',10,0], ['boost_first',20,20], ['boost_30d',30,30],
+    ]);
+    expect(body.rules.filter(rule => ['official_discussion','event'].includes(rule.event)).every(rule => !rule.enabled)).toBe(true);
+    expect((await xp.current()).body).toEqual(old);
+    expect((await xp.history(user))).toHaveLength(0);
+    expect(evoPointsProposal(old)).toEqual(body);
+  });
+
   it('starts disabled and requires review, permission and an unchanged published version', async () => {
     expect((await xp.current()).body.enabled).toBe(false);
     const config = structuredClone(xpDefaults); config.enabled = true;
@@ -102,7 +130,7 @@ describe('XP rules, ledger and fairness', () => {
     const data = { userId: user, event: 'creation', source: 'creation:12345', reason: 'Reviewed an original game submission' };
     expect((await xp.reviewed(admin, data)).reason).toBe('XP_DISABLED');
     await enable();
-    expect((await xp.reviewed(admin, data)).amount).toBe(15);
+    expect((await xp.reviewed(admin, data)).amount).toBe(5);
     expect((await xp.reviewed(admin, data)).reason).toBe('DUPLICATE_EVENT');
     expect((await xp.reviewed(admin, { ...data, userId: other })).reason).toBe('DUPLICATE_EVENT');
     await expect(xp.reviewed(mod, { ...data, source: 'creation:54321' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
@@ -144,7 +172,7 @@ describe('Boost qualification', () => {
     await xp.observeBoost(user, since, true);
     const verify = vi.fn(async () => since);
     await xp.checkBoosts(verify);
-    expect((await xp.summary(user)).lifetimeXp).toBe(150);
+    expect((await xp.summary(user)).lifetimeXp).toBe(20);
     await db.query('UPDATE xp_boost_state SET next_check_at=now() WHERE user_id=$1', [user]);
     await xp.checkBoosts(verify);
     expect((await xp.history(user))).toHaveLength(1);
@@ -155,7 +183,7 @@ describe('Boost qualification', () => {
     await db.query('UPDATE xp_boost_state SET next_check_at=now() WHERE user_id=$1', [user]);
     verify.mockClear(); await xp.checkBoosts(verify);
     expect(verify).not.toHaveBeenCalled();
-    expect((await xp.summary(user)).lifetimeXp).toBe(150);
+    expect((await xp.summary(user)).lifetimeXp).toBe(20);
   });
   it('awards only a verified full continuous cycle, never repeats it and does not infer awards from a failed lookup', async () => {
     await enable();
@@ -167,14 +195,15 @@ describe('Boost qualification', () => {
     await db.query('UPDATE xp_boost_state SET next_check_at=now() WHERE user_id=$1', [user]);
     expect((await xp.summary(user)).lifetimeXp).toBe(0);
     await xp.checkBoosts(async () => since);
-    expect((await xp.summary(user)).lifetimeXp).toBe(50);
+    expect((await xp.summary(user)).lifetimeXp).toBe(30);
     await db.query('UPDATE xp_boost_state SET next_check_at=now() WHERE user_id=$1', [user]);
     await xp.checkBoosts(async () => since);
     expect(await xp.history(user)).toHaveLength(1);
-    // Re-boosting resets continuity, without another lifetime first bonus.
+    // A previously unawarded historical Booster can qualify on a newly observed Boost.
     await xp.observeBoost(user, null, false);
-    await xp.observeBoost(user, new Date(), true);
-    await xp.checkBoosts(async () => new Date());
+    const renewed = new Date();
+    await xp.observeBoost(user, renewed, true);
+    await xp.checkBoosts(async () => renewed);
     expect((await xp.summary(user)).lifetimeXp).toBe(50);
   });
 });

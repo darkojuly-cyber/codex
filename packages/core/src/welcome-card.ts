@@ -2,7 +2,7 @@ import { ButtonStyle, ComponentType, type APIActionRowComponent, type APIButtonC
 
 export type WelcomeAppearance = { avatarUrl?: string; guildIconUrl?: string };
 
-function discordImage(value?: string) {
+export function discordImage(value?: string) {
   if (!value) return undefined;
   try {
     const url = new URL(value);
@@ -34,7 +34,7 @@ export function welcomeCard(body: string, appearance: WelcomeAppearance = {}) {
       { type: ComponentType.Button, style: ButtonStyle.Primary, label: 'Surprise Me!', emoji: { name: '🎲' }, custom_id: 'idea:another' },
       { type: ComponentType.Button, style: ButtonStyle.Secondary, label: 'Explore EvoMeme', emoji: { name: '🪄' }, custom_id: 'links:current' },
       { type: ComponentType.Button, style: ButtonStyle.Secondary, label: 'Get Support', emoji: { name: '🎫' }, custom_id: 'ticket:new' },
-      { type: ComponentType.Button, style: ButtonStyle.Secondary, label: 'XP Rules', emoji: { name: '✨' }, custom_id: 'xp:rules' },
+      { type: ComponentType.Button, style: ButtonStyle.Secondary, label: 'Evo Points', emoji: { name: '✨' }, custom_id: 'xp:rules' },
     ],
   };
   return { embeds: [embed], components: [row] };

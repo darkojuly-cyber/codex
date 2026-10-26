@@ -23,12 +23,26 @@ export const xpDefaults: XpConfig = {
   enabled: false, timezone: 'Asia/Shanghai', minimumCharacters: 10, levelThresholds: [0, 100, 300, 600, 1000, 1500],
   rules: [
     ['first_message', 'First meaningful message', 10, 10, 0], ['chat', 'Meaningful conversation', 2, 20, 60],
-    ['official_discussion', 'Official discussion', 5, 15, 60], ['creation', 'Reviewed creation or remix', 15, 15, 0],
-    ['confirmed_issue', 'Confirmed unique issue or suggestion', 20, 0, 0], ['featured', 'Featured contribution', 30, 0, 0],
-    ['event', 'Reviewed event participation', 10, 50, 0], ['boost_first', 'First qualifying Server Boost', 150, 150, 0],
-    ['boost_30d', '30 continuous days of Boost', 50, 50, 0],
-  ].map(([event, label, points, dailyCap, cooldownSeconds]) => ({ event: event as XpEvent, label: String(label), points: Number(points), dailyCap: Number(dailyCap), cooldownSeconds: Number(cooldownSeconds), channels: [], enabled: false, startsAt: null, endsAt: null })),
+    ['official_discussion', 'Official discussion', 5, 15, 60], ['creation', 'Reviewed creations or creative tips', 5, 20, 0],
+    ['confirmed_issue', 'Confirmed unique bug reports or suggestions', 3, 18, 0], ['featured', 'Team-selected contributions', 10, 0, 0],
+    ['event', 'Reviewed event participation', 10, 50, 0], ['boost_first', 'First qualifying Server Boost', 20, 20, 0],
+    ['boost_30d', '30 continuous days of Boost', 30, 30, 0],
+  ].map(([event, label, points, dailyCap, cooldownSeconds]) => ({ event: event as XpEvent, label: String(label), points: Number(points), dailyCap: Number(dailyCap), cooldownSeconds: Number(cooldownSeconds), channels: [], enabled: !['official_discussion','event'].includes(String(event)), startsAt: null, endsAt: null })),
 };
+
+// A reviewable proposal, never an automatic replacement of published rules.
+export function evoPointsProposal(current: XpConfig): XpConfig {
+  return {
+    ...structuredClone(current), enabled: false,
+    rules: xpDefaults.rules.map(proposal => {
+      const existing = current.rules.find(rule => rule.event === proposal.event);
+      return { ...structuredClone(proposal),
+        channels: existing ? [...existing.channels] : [],
+        startsAt: existing?.startsAt ?? null, endsAt: existing?.endsAt ?? null,
+      };
+    }),
+  };
+}
 export type XpPeriod = 'weekly' | 'monthly' | 'all_time';
 export function periodStart(now: Date, period: XpPeriod, timezone: string): string | null {
   if (period === 'all_time') return null;

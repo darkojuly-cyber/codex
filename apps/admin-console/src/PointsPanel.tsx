@@ -48,6 +48,12 @@ export function PointsPanel({ api, active, refreshKey, locale, t }: { api: Api; 
     {error && <p className="error" role="alert">{translateError(locale, error)}</p>}
     {notice && <p className="notice" role="status">{t(notice)}</p>}
     <section><h2>{t('XP & Rewards')}</h2><p>{t('Published XP rules v{version}', { version: overview.current.version })} · <strong>{t(overview.current.body.enabled ? 'Scoring enabled' : 'Scoring disabled')}</strong></p><p className="muted">{t('Values below are proposals until reviewed and published. Changes apply to new events; previous awards stay in the ledger.')}</p>
+      <p className="muted">{t('Create the agreed Evo Points proposal while keeping scoring paused. Existing published rules and past awards stay in place.')}</p>
+      <button disabled={busy} onClick={() => void run(async () => {
+        const revision = await api<Revision>('/xp/proposal', 'POST', {});
+        edit(revision.body); setReason(revision.reason); await load();
+        setNotice('Evo Points draft created. Review, approve and publish it below.');
+      })}>{t('Create Evo Points draft')}</button>
       <label className="checkbox"><input type="checkbox" checked={config.enabled} onChange={e => setConfig({ ...config, enabled: e.target.checked })}/>{t('Enable XP scoring')}</label>
       <div className="form-grid"><label>{t('XP timezone')}<input value={config.timezone} onChange={e => setConfig({ ...config, timezone: e.target.value })}/></label>
       <label>{t('Minimum meaningful characters')}<input type="number" min={5} max={200} value={config.minimumCharacters} onChange={e => setConfig({ ...config, minimumCharacters: Number(e.target.value) })}/></label>

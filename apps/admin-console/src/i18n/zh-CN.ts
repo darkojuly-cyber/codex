@@ -1,5 +1,8 @@
 /** Console copy only. User-authored content, Discord templates and protocol values stay intact. */
 export const zhCN: Record<string, string> = {
+  'Create the agreed Evo Points proposal while keeping scoring paused. Existing published rules and past awards stay in place.': '按确认的分值生成 Evo Points 草稿，计分总开关保持关闭。已有已发布规则和历史积分保留。',
+  'Create Evo Points draft': '生成 Evo Points 规则草稿',
+  'Evo Points draft created. Review, approve and publish it below.': 'Evo Points 草稿已生成，请在下方检查、审核并发布。',
   'COMMUNITY CONSOLE': '社区运营后台',
   'A little weird.': '多一点脑洞，',
   'A lot more connected.': '多一份连接。',

@@ -108,3 +108,7 @@ Evo Points 卡片本轮验证：lint/build、69 项本地测试和 8 项浏览�
 ## Windows 一键启动（2026-10-26）
 
 新增 Start.cmd、Stop.cmd、Status.cmd：单控制窗口启动 API/Caddy/Bot/Worker，源码变化时自动构建，服务就绪后打开本地后台。会话防重复、本地认证控制、凭证日志过滤、重启及 PID 复用状态恢复均有测试；停止只作用于本次自己启动的子进程。通过 lint/build、78 项本地测试和 8 项浏览器流程。Windows CMD/CIM/证书联动需要用户本机首验，云端未声称实际运行成功。详见 [WINDOWS_LAUNCHER.md](WINDOWS_LAUNCHER.md)。
+
+## Mimo 桌面快捷方式与热键（2026-10-26）
+
+新增 CreateShortcut.cmd，选择本机保存的 Mimo 图片并生成四尺寸 ICO、桌面快捷方式与 Ctrl+Alt+M 热键，沿用 Start.cmd 生命周期与防重复逻辑。已通过 lint/build、80 项本地测试和独立 ICO 解码验证；Windows 选图/COM/热键尚需本机验收。图片未作为可读文件附加到云工作区，工具在用户电脑选择原图，不使用替代图片。

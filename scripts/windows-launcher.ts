@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { loadEnvironment } from '../packages/core/src/load-env.js';
 import { caddyConfiguration, localConfig, projectId, projectProcesses, redactOutput, sourceFingerprint, type ServiceRole, type ProcessInfo } from './local-launcher-utils.js';
 import { claimSession, contactSession, isProcessAlive, newOwner, readOwner, releaseSession, startControl, type ServiceStatus, type LauncherStatus, type SessionOwner } from './local-launcher-state.js';
+import { createDesktopShortcut } from './windows-shortcut.js';
 
 const exec = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -219,10 +220,11 @@ async function start() {
 
 async function main() {
   const command = process.argv[2] ?? 'start';
-  if (command === '--help') { console.log('Windows: Start.cmd starts the console, API, Bot and Worker; Stop.cmd stops owned services; Status.cmd shows status.'); return; }
+  if (command === '--help') { console.log('Windows: Start.cmd starts the console, API, Bot and Worker; Stop.cmd stops owned services; Status.cmd shows status; CreateShortcut.cmd adds a Mimo desktop icon and Ctrl+Alt+M hotkey.'); return; }
   if (process.platform !== 'win32') throw new Error('Use this launcher on your Windows computer. The cloud environment continues to use npm run dev / npm run api.');
   const [major, minor] = process.versions.node.split('.').map(Number);
   if (major < 22 || (major === 22 && minor < 16)) throw new Error('Node.js 22.16 or later is required.');
+  if (command === 'shortcut') { await createDesktopShortcut(root, process.argv[3]); return; }
   if (command === 'start') { await start(); return; }
   if (!['stop','status'].includes(command)) throw new Error('Use Start.cmd, Stop.cmd or Status.cmd.');
   const owner = await readOwner(stateDirectory);

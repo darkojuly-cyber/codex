@@ -78,3 +78,5 @@ TEST_DATABASE_URL='postgresql://…专用测试库…' npm test
 成员端积分卡片现统一为 **Evo Points**，含个人积分、周榜和月榜按钮。已有数据库可在后台生成确认分值的新草稿；安装源码不自动覆盖或启用现有计分。见 [成员卡片与更新步骤](docs/EVO_POINTS_CARD.md)。
 
 Windows 已配置用户可在项目根目录双击 **Start.cmd**，统一启动 API、Caddy、Bot 和 Worker；**Stop.cmd** 停止本次启动的服务，**Status.cmd** 查看状态。首次使用及登录自启见 [Windows 一键启动](docs/WINDOWS_LAUNCHER.md)。
+
+想使用 Mimo 图片图标和启动热键：保存图片后双击 **CreateShortcut.cmd**，选择图片。桌面生成 **Mimo - EvoMeme**，之后按 **Ctrl+Alt+M** 即可启动；见 [快捷方式说明](docs/MIMO_SHORTCUT.md)。

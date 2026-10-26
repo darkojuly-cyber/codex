@@ -8,6 +8,7 @@
 
 | 文件 | 用途 |
 | --- | --- |
+| `CreateShortcut.cmd` | 使用选定的 Mimo 图片创建桌面图标，并设置 Ctrl+Alt+M 启动热键 |
 | `Start.cmd` | 启动一个控制窗口，检查/构建前端，启动 API、Caddy、Bot 和 Worker，就绪后打开浏览器 |
 | `Stop.cmd` | 停止这一键会话自己启动的服务，等待退出；不结束其他 Node 项目或手动复用的服务 |
 | `Status.cmd` | 查看各服务状态和是否由当前会话管理 |
@@ -93,3 +94,5 @@ EVOMEME_CADDY_ROOT_CERT=D:/Config/root.crt
 云环境完成了类型/构建检查、状态互斥、认证、重启/PID 复用恢复、路径识别、日志过滤、源码构建指纹，以及真实 API 的隔离数据库启动与 IPC 退出测试。云主机为 Linux，未实际执行 Windows CMD、PowerShell CIM、Windows 证书安装或真实 Discord 联动。首次 Windows 双击启动仍需本机验收。云开发环境继续使用既有 npm 开发命令，不运行 Windows 启动器。
 
 本轮结果：lint、TypeScript/Vite 构建、78 项本地测试及 8 项浏览器流程通过；其中真实 API 子进程在隔离 PGlite 数据库中启动并经 IPC 正常关闭、释放数据库锁。Windows 专属入口与 Caddy/Discord 联动尚未在 Windows 主机执行。
+
+Mimo 图片图标与键盘启动见 [MIMO_SHORTCUT.md](MIMO_SHORTCUT.md)。

@@ -137,7 +137,7 @@ it.each(['rules', 'rank', 'leaderboard'])('shares %s publicly only in the config
   const payload = JSON.stringify(command.editReply.mock.calls[0][0]);
   if (kind === 'rank') {
     expect(payload).toContain('123456789012345678 · Evo Points');
-    expect(payload).toContain('Overall Rank #4');
+    expect(payload).toContain('#4 · Overall Rank');
     expect(payload).not.toMatch(/Level|next level/);
   }
 });
@@ -208,8 +208,8 @@ it('puts the overall rank in the main title, with clear unranked and weekly/mont
     const command = button('xp:rank');
     await showPoints(command.value, { summary: async () => ({ ...account, ranks: ranked ? account.ranks : { weekly: null, monthly: null, all_time: null }, lifetimeXp: ranked ? 30 : 0 }) } as unknown as XpService);
     const embed = (command.editReply.mock.calls[0][0] as { embeds: { title: string; fields: { name: string; value: string }[] }[] }).embeds[0];
-    expect(embed.title).toBe(ranked ? '🏆 Overall Rank #4' : '🏆 Overall Rank · Unranked');
-    expect(embed.fields.map(field => field.value)).toEqual(ranked ? ['**#2**', '**#3**', '**#4**'] : ['Unranked', 'Unranked', 'Unranked']);
+    expect(embed.title).toBe(ranked ? '🏆 #4 · Overall Rank' : '✨ Unranked · Overall Rank');
+    expect(embed.fields.map(field => field.value)).toEqual(ranked ? ['🥈 **#2**', '🥉 **#3**', '🏆 **#4**'] : ['Unranked', 'Unranked', 'Unranked']);
     expect(() => EmbedBuilder.from(embed).toJSON()).not.toThrow();
   }
 });

@@ -6,6 +6,12 @@ import { pointsGuide, pointsNavigation, pointsPaused } from './points-card.js';
 const noMentions = { parse: [] as never[], users: [], roles: [], repliedUser: false };
 const safe = (value: string) => value.replace(/([\\`*_~|>[\]])/g, '\\$1').replace(/@/g, '@\u200b');
 const publicCooldowns = new Map<string, number>();
+function rankAppearance(rank: number | null) {
+  if (rank === 1) return { color: 0xf6c453, badge: '🥇' };
+  if (rank === 2) return { color: 0xc0c8d6, badge: '🥈' };
+  if (rank === 3) return { color: 0xd99559, badge: '🥉' };
+  return { color: rank ? 0xa78bfa : 0x8891a5, badge: rank ? '🏆' : '✨' };
+}
 export async function showPoints(interaction: ChatInputCommandInteraction | ButtonInteraction, xp: XpService, options: { channelId?: string } = {}) {
   const buttonId = interaction.isButton() ? interaction.customId : null;
   const slash = interaction.isChatInputCommand() ? interaction : null;
@@ -34,14 +40,15 @@ export async function showPoints(interaction: ChatInputCommandInteraction | Butt
   }
   if (buttonId === 'xp:rank' || slash?.commandName === 'rank') {
     const summary = await xp.summary(interaction.user.id);
-    const rank = (value: number | null) => value ? `**#${value}**` : 'Unranked';
+    const rank = (value: number | null) => value ? `${rankAppearance(value).badge} **#${value}**` : 'Unranked';
+    const appearance = rankAppearance(summary.ranks.all_time);
     const avatar = interaction.user.displayAvatarURL({ size: 256, extension: 'png' });
     await interaction.editReply({ embeds: [{
-      color: 0xa78bfa,
+      color: appearance.color,
       author: { name: publicReply ? `${interaction.user.username ?? interaction.user.id} · Evo Points` : 'My Evo Points', icon_url: avatar },
-      title: summary.ranks.all_time ? `🏆 Overall Rank #${summary.ranks.all_time}` : '🏆 Overall Rank · Unranked',
+      title: summary.ranks.all_time ? `${appearance.badge} #${summary.ranks.all_time} · Overall Rank` : '✨ Unranked · Overall Rank',
       thumbnail: { url: avatar },
-      description: `**${summary.lifetimeXp} total points**\n${summary.ranks.all_time ? 'Your place among the community’s contributors.' : 'Earn your first points to join the rankings.'}`,
+      description: `✨ **${summary.lifetimeXp} total points**${summary.ranks.all_time ? '' : '\nEarn your first points to join the rankings.'}`,
       fields: [
         { name: '🏆 This week', value: rank(summary.ranks.weekly), inline: true },
         { name: '📅 This month', value: rank(summary.ranks.monthly), inline: true },

@@ -1,5 +1,8 @@
 /** Console copy only. User-authored content, Discord templates and protocol values stay intact. */
 export const zhCN: Record<string, string> = {
+  'Restoring your sign-in…': '正在恢复登录状态…',
+  'Unable to check your sign-in. Make sure the API is running, then retry.': '暂时无法验证登录状态。请确认 API 正在运行，然后重试。',
+  'Retry sign-in check': '重新验证登录状态',
   'Reply to requester': '回复用户',
   'This message is sent to the private Discord channel and is visible to the requester. It is separate from internal notes.': '此消息会发到私密 Discord 工单频道，用户可见；它与内部备注独立。',
   'Send this reply to the requester in their private Discord channel?': '确认将此回复发送到用户的私密 Discord 工单频道？',

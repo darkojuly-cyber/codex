@@ -10,9 +10,10 @@ declare module 'fastify' { interface FastifyRequest { actor: Actor; csrf: string
 const token = () => randomBytes(32).toString('base64url');
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const equal = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+const sessionSeconds = 30 * 24 * 3600;
 
 export function auth(app: FastifyInstance, db: Database, env: Env) {
-  const options = { path: '/', httpOnly: true, sameSite: 'lax' as const, secure: env.APP_MODE === 'discord', maxAge: 8 * 3600 };
+  const options = { path: '/', httpOnly: true, sameSite: 'lax' as const, secure: env.APP_MODE === 'discord', maxAge: sessionSeconds };
   const cookie = env.APP_MODE === 'discord' ? '__Host-evomeme' : 'evomeme_mock';
   const allowedOrigins = new Set([new URL(env.PUBLIC_ORIGIN).origin, ...(env.APP_MODE === 'mock' ? ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://127.0.0.1:3000'] : [])]);
   async function guildRole(userId: string): Promise<Role> {
@@ -29,7 +30,7 @@ export function auth(app: FastifyInstance, db: Database, env: Env) {
   async function createSession(reply: FastifyReply, userId: string, role: Role) {
     const session = token(); const csrf = token();
     await db.query("DELETE FROM admin_session WHERE expires_at < now()");
-    await db.query("INSERT INTO admin_session(token_hash,user_id,role,csrf,expires_at) VALUES($1,$2,$3,$4,now()+interval '8 hours')", [hash(session), userId, role, csrf]);
+    await db.query("INSERT INTO admin_session(token_hash,user_id,role,csrf,expires_at) VALUES($1,$2,$3,$4,now()+$5*interval '1 second')", [hash(session), userId, role, csrf, sessionSeconds]);
     await db.query('INSERT INTO audit_log(id,actor_id,action,detail) VALUES($1,$2,$3,$4)', [randomUUID(), userId, 'session.created', JSON.stringify({ role, mode: env.APP_MODE })]);
     reply.setCookie(cookie, session, options);
     return { userId, role, csrf, mode: env.APP_MODE.toUpperCase() };
@@ -86,7 +87,14 @@ export function auth(app: FastifyInstance, db: Database, env: Env) {
     await createSession(reply, user.id, await guildRole(user.id));
     return reply.redirect('/');
   });
-  app.get('/api/session', async request => ({ userId: request.actor.id, role: request.actor.role, csrf: request.csrf, mode: env.APP_MODE.toUpperCase() }));
+  app.get('/api/session', async (request, reply) => {
+    // Renew only after authentication, live role verification and an atomic expiry check.
+    const renewed = await db.query("UPDATE admin_session SET expires_at=now()+$2*interval '1 second' WHERE token_hash=$1 AND expires_at>now() RETURNING user_id", [hash(request.cookies[cookie]!), sessionSeconds]);
+    if (!renewed.length) throw new AppError(401, 'SESSION_EXPIRED');
+    reply.header('Cache-Control', 'no-store');
+    reply.setCookie(cookie, request.cookies[cookie]!, options);
+    return { userId: request.actor.id, role: request.actor.role, csrf: request.csrf, mode: env.APP_MODE.toUpperCase() };
+  });
   app.post('/api/logout', async (request, reply) => {
     await db.query('DELETE FROM admin_session WHERE token_hash=$1', [hash(request.cookies[cookie]!)]);
     await db.query('INSERT INTO audit_log(id,actor_id,action) VALUES($1,$2,$3)', [randomUUID(), request.actor.id, 'session.revoked']);

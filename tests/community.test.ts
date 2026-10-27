@@ -231,6 +231,29 @@ describe('server authorization, sessions, CSRF and input boundaries', () => {
     expect((await app.inject({ url: '/api/session', headers })).statusCode).toBe(401);
     await app.close();
   });
+  it('persists and renews valid sessions across API restarts without reviving expired sessions', async () => {
+    const { app, headers } = await appSession();
+    const [created] = await db.query('SELECT expires_at FROM admin_session');
+    expect(new Date(String(created.expires_at)).getTime() - Date.now()).toBeGreaterThan(29 * 86400000);
+    await db.query("UPDATE admin_session SET expires_at=now()+interval '1 hour'");
+    await app.close();
+    const restarted = await createApp(service, readEnv());
+    try {
+      const restored = await restarted.inject({ url: '/api/session', headers });
+      expect(restored.statusCode).toBe(200);
+      expect(restored.json().role).toBe('SUPER_ADMIN');
+      expect(restored.headers['cache-control']).toBe('no-store');
+      expect(restored.cookies.find(c => c.name === 'evomeme_mock')).toMatchObject({ httpOnly: true, sameSite: 'Lax', maxAge: 2592000 });
+      const [renewed] = await db.query('SELECT expires_at FROM admin_session');
+      expect(new Date(String(renewed.expires_at)).getTime() - Date.now()).toBeGreaterThan(29 * 86400000);
+      await db.query("UPDATE admin_session SET expires_at=now()-interval '1 minute'");
+      const expired = await restarted.inject({ url: '/api/session', headers });
+      expect(expired.statusCode).toBe(401);
+      expect(expired.cookies).toHaveLength(0);
+      const [old] = await db.query('SELECT expires_at FROM admin_session');
+      expect(new Date(String(old.expires_at)).getTime()).toBeLessThan(Date.now());
+    } finally { await restarted.close(); }
+  });
   it('does not expose mock login in Discord mode', async () => {
     const env = { ...readEnv(), APP_MODE: 'discord' as const };
     const app = await createApp(service, env);
@@ -254,11 +277,13 @@ describe('server authorization, sessions, CSRF and input boundaries', () => {
     const loggedIn = await app.inject({ url: callback, headers: { cookie: stateCookie } });
     expect(loggedIn.statusCode).toBe(302);
     const sessionCookie = loggedIn.cookies.filter(c => c.name === '__Host-evomeme').map(c => `${c.name}=${c.value}`).join('; ');
-    expect(loggedIn.cookies.find(c => c.name === '__Host-evomeme')).toMatchObject({ secure: true, httpOnly: true });
+    expect(loggedIn.cookies.find(c => c.name === '__Host-evomeme')).toMatchObject({ secure: true, httpOnly: true, maxAge: 2592000 });
+    expect((await app.inject({ url: '/api/session', headers: { cookie: sessionCookie } })).statusCode).toBe(200);
     expect((await app.inject({ url: '/api/config', headers: { cookie: sessionCookie } })).statusCode).toBe(200);
     expect((await app.inject({ url: callback, headers: { cookie: stateCookie } })).statusCode).toBe(403);
     granted = false;
     expect((await app.inject({ url: '/api/config', headers: { cookie: sessionCookie } })).statusCode).toBe(403);
+    expect((await app.inject({ url: '/api/session', headers: { cookie: sessionCookie } })).statusCode).toBe(403);
     await app.close();
   });
   it('creates real adapter tickets with explicit @everyone deny and only the bound staff and owner allowed', async () => {

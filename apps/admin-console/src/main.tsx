@@ -19,6 +19,8 @@ function App() {
   const date = (value: unknown) => formatDate(locale, value);
   const languageSwitch = <LanguageSwitch locale={locale} onChange={setLocale}/>;
   const [session, setSession] = useState<Session | null>(null);
+  const [restoringSession, setRestoringSession] = useState(true);
+  const [sessionUnavailable, setSessionUnavailable] = useState(false);
   const [mode, setMode] = useState('');
   const [tab, setTab] = useState<Tab>('Overview');
   const [data, setData] = useState<Row>({});
@@ -52,7 +54,19 @@ function App() {
     }
     return result as T;
   }
-  useEffect(() => { void fetch('/api/health').then(r => r.json()).then(r => setMode(r.mode)).catch(() => setError('API unavailable. Start npm run dev.')); void fetch('/api/session').then(async r => { if (r.ok) setSession(await r.json()); }).catch(() => undefined); }, []);
+  async function restoreSession() {
+    setRestoringSession(true); setSessionUnavailable(false);
+    try {
+      const response = await fetch('/api/session', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(20000) });
+      if (response.ok) setSession(await response.json());
+      else if (response.status === 401 || response.status === 403) {
+        setSession(null);
+        if (response.status === 403) setError((await response.json()).error);
+      } else setSessionUnavailable(true);
+    } catch { setSessionUnavailable(true); }
+    finally { setRestoringSession(false); }
+  }
+  useEffect(() => { void fetch('/api/health').then(r => r.json()).then(r => setMode(r.mode)).catch(() => setError('API unavailable. Start npm run dev.')); void restoreSession(); }, []);
   async function load(resetConfig = false) {
     if (!session) return;
     setError(''); setLoading(true); setRows([]); setDetail(null);
@@ -88,6 +102,7 @@ function App() {
     return <label>{t(label)}<input value={key === 'publish' ? config.channels.publish.join(',') : config.channels[key] ?? ''} onChange={e => setConfig({ ...config, channels: { ...config.channels, [key]: key === 'publish' ? e.target.value.split(',').map(s => s.trim()).filter(Boolean) : e.target.value } })}/></label>;
   }
   const visibleTabs = (Object.keys(labels) as Tab[]).filter(t => manager || ['Overview', 'Tickets'].includes(t) || (t === 'Audit' && session?.role !== 'SUPPORT'));
+  if (restoringSession || sessionUnavailable) return <div className="login"><div className="login-card"><div className="login-tools">{languageSwitch}</div><div className="brand">EvoMeme<span>{t('COMMUNITY CONSOLE')}</span></div>{restoringSession ? <p role="status">{t('Restoring your sign-in…')}</p> : <><p role="alert">{t('Unable to check your sign-in. Make sure the API is running, then retry.')}</p><button onClick={() => void restoreSession()}>{t('Retry sign-in check')}</button></>}</div></div>;
   if (!session) return <div className="login"><div className="login-card"><div className="login-tools">{languageSwitch}</div><div className="brand">EvoMeme<span>{t("COMMUNITY CONSOLE")}</span></div><Badge>{t(mode || 'CONNECTING')}</Badge><h1>{t("A little weird.")}<br/>{t("A lot more connected.")}</h1><p>{t("Support your community. Give good ideas somewhere to go.")}</p><div className="placeholder">{t("MIMO · OFFICIAL ART PLACEHOLDER")}</div>{error && <p role="alert" className="error">{translateError(locale, error)}</p>}{mode === 'MOCK' ? <><p className="muted">{t("Local simulation · no Discord users or channels are affected.")}</p>{(['SUPER_ADMIN', 'COMMUNITY_MANAGER', 'MODERATOR', 'SUPPORT'] as Role[]).map(role => <button key={role} disabled={busy} onClick={() => void run(async () => { setSession(await api<Session>('/auth/mock', 'POST', { role })); })}>{t("Enter as")} {roleName(locale, role)}</button>)}</> : <a className="button primary" href="/api/auth/discord">{t("Sign in with Discord")}</a>}<small>{t("Staff authorization is checked on the server.")}</small></div></div>;
   return <div className="shell"><aside><div className="brand">EvoMeme<span>{t("COMMUNITY CONSOLE")}</span></div><div className="workspace"><span className="workspace-icon">E</span><div>{t("EvoMeme Community")}<small>{t(session.mode === 'MOCK' ? 'Local sandbox' : 'Discord workspace')}</small></div><span className="dot"/></div><div className="nav-label">{t("WORKSPACE")}</div><nav>{visibleTabs.map(tabId => <button key={tabId} className={tab === tabId ? 'active' : ''} onClick={() => { setTab(tabId); setNotice(''); setError(''); }}><span aria-hidden="true">{labels[tabId]}</span>{t(tabId)}</button>)}</nav><div className="sidebar-foot"><div className="placeholder">{t("MIMO ART · PLACEHOLDER")}</div><p>{t("Anything can be a game.")}</p><small>{roleName(locale, session.role)}</small><button onClick={() => void run(async () => { await api('/logout', 'POST', {}); setSession(null); })}>{t("Sign out →")}</button></div></aside>
   <div className="content"><header><span>{t("Workspace")} <span className="muted">/ {t(tab)}</span></span><div>{languageSwitch}<Badge>{t(session.mode)}</Badge><span className="avatar">{session.role.slice(0, 1)}</span></div></header>

@@ -15,7 +15,7 @@ const channel = '523456789012345678';
 let db: Database, ops: Operations;
 beforeAll(async () => { db = await openDatabase(undefined, 'memory://'); await migrate(db); });
 afterAll(async () => { await db.close(); });
-beforeEach(async () => { await db.query('TRUNCATE member_profile,staff_access,operations_settings,community_event,risk_signal,gateway_observation,member_presence,admin_session,ticket CASCADE'); ops = new Operations(db, new MockTransport(), true); await ops.initialize(); });
+beforeEach(async () => { await db.query('TRUNCATE community_lifetime,community_lifetime_speaker,community_capture_minute,member_profile,staff_access,operations_settings,community_event,risk_signal,gateway_observation,member_presence,admin_session,ticket CASCADE'); ops = new Operations(db, new MockTransport(), true); await ops.initialize(); });
 it('deduplicates observed events, counts unique speakers across days and applies calendar boundaries', async () => {
   await ops.heartbeat(true, true, false);
   await ops.membership('JOIN', manager.id, 'one-join'); await ops.membership('JOIN', manager.id, 'one-join');
@@ -117,4 +117,45 @@ it('uses guild nicknames and individual app overrides in the live Discord adapte
   vi.mocked(adapter.rest.get).mockResolvedValue({ roles: [staffRole], user: { username: 'operator' } });
   await expect(adapter.ticketStaff(mod.id)).rejects.toMatchObject({ code: 'STAFF_ACCESS_REVOKED' });
   vi.restoreAllMocks();
+});
+it('keeps collected totals after raw retention cleanup and distinguishes missing dates from observed zeros', async () => {
+  await ops.heartbeat(true, true, true, 42);
+  const input = { id: '733456789012345678', user: manager.id, channel, category: null, parent: null, at: new Date(Date.now() - 31 * 86400000) };
+  await ops.message(input); await ops.message(input);
+  let data = await ops.overview(mod, 7, 'Asia/Shanghai');
+  expect(data.totals.messages).toBe(0); expect(data.lifetime).toMatchObject({ messages: 1, speakers: 1 });
+  expect(data.coverage?.member_count).toBe(42);
+  expect(data.daily).toHaveLength(7);
+  expect(data.daily[0].messages).toBeNull();
+  expect(data.daily.at(-1)?.messages).toBe(0);
+  await db.query("UPDATE community_event SET occurred_at=now()-interval '100 days'"); await ops.cleanup();
+  expect(await db.query('SELECT * FROM community_event')).toHaveLength(0);
+  await ops.message({ ...input, id: '733456789012345679', at: new Date() });
+  data = await ops.overview(mod, 7, 'Asia/Shanghai');
+  expect(data.totals.messages).toBe(1); expect(data.lifetime).toMatchObject({ messages: 2, speakers: 1 });
+  await ops.message({ ...input, id: '733456789012345680', at: new Date(Date.now() - 100 * 86400000) });
+  expect((await ops.overview(mod, 7, 'UTC')).lifetime.messages).toBe(2);
+});
+it('backfills existing observations once when adding durable totals', async () => {
+  const { readFile } = await import('node:fs/promises');
+  await db.query('DELETE FROM community_lifetime');
+  await db.query("INSERT INTO community_event(event_key,kind,user_id,occurred_at) VALUES('legacy-1','MESSAGE',$1,now()),('legacy-2','MESSAGE',$1,now()),('legacy-3','JOIN',$1,now())", [manager.id]);
+  const migration = await readFile(new URL('../packages/db/migrations/007_activity_totals.sql', import.meta.url), 'utf8');
+  for (let run = 0; run < 2; run++) for (const statement of migration.split(';').map(text => text.trim()).filter(Boolean)) await db.query(statement);
+  expect((await ops.overview(mod, 7, 'UTC')).lifetime).toMatchObject({ messages: 2, speakers: 1, joins: 1 });
+});
+it('uses combined review presets without treating ordinary links or criticism as automatic violations', async () => {
+  const { riskMatches } = await import('../packages/core/src/risk-rules.js');
+  expect(riskMatches('This scam report needs investigation.', [], ['scam_links'])).toEqual([]);
+  expect(riskMatches('My new game is here https://example.test/game', [], ['scam_links'])).toEqual([]);
+  expect(riskMatches('connect your wallet', [], ['scam_links'])).toEqual([]);
+  expect(riskMatches('Claim your free Nitro https://example.test/claim', [], ['scam_links'])).toEqual(['preset:scam_links']);
+  expect(riskMatches('check this out', [], ['mass_mentions'], 5)).toEqual(['preset:mass_mentions']);
+  expect(riskMatches('check this out', [], ['mass_mentions'], 4)).toEqual([]);
+  expect(riskMatches('important note', [], ['mass_mentions'], 0, true)).toEqual(['preset:mass_mentions']);
+  await ops.saveSettings(root, { body: { enabled: true, channelIds: [channel], excludedCategoryIds: [], keywords: [], presets: ['scam_links'] }, expectedVersion: 1 });
+  await ops.message({ id: '833456789012345678', user: manager.id, channel, category: null, parent: null, at: new Date(), content: 'Guaranteed profit https://example.test/invest' });
+  const signals = await ops.risks(mod);
+  expect(signals.total).toBe(1); expect(signals.entries[0].matches).toEqual(['preset:scam_links']);
+  expect(signals.entries[0].status).toBe('OPEN');
 });

@@ -65,3 +65,21 @@ aside{overflow-y:auto}
 @media(max-width:650px) { .operations-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } .section-head { flex-wrap: wrap; } header .person { max-width: 120px; } }
 
 .operations-columns { align-items: start; }
+.member-snapshot { display: flex; align-items: center; flex-wrap: wrap; gap: 1rem; padding: 1rem 0; }
+.member-snapshot > strong { font-size: 2rem; color: #d4c4ff; }
+.member-snapshot small { margin-top: .25rem; }
+.operations-metrics { grid-template-columns: repeat(4,minmax(0,1fr)); }
+.lifetime-value { margin-top: .8rem; padding-top: .65rem; border-top: 1px solid #383240; color: #b8b1c5; }
+.activity-chart-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; margin: 1.5rem 0 .75rem; }
+.activity-chart { position: relative; min-width: 0; padding: 1rem; border: 1px solid #383240; border-radius: 12px; background: #191720; }
+.chart-heading { display: flex; justify-content: space-between; gap: .6rem; align-items: start; }
+.chart-heading h3 { margin: 0; }
+.chart-heading > span { text-align: right; }
+.chart-heading strong { font-size: 1.6rem; }
+.activity-chart svg { display: block; width: 100%; height: auto; margin-top: .5rem; }
+.activity-chart svg text { fill: #a59bb5; font: 11px sans-serif; }
+.activity-chart svg:focus-visible { outline: 2px solid #c5f586; border-radius: 6px; }
+.chart-empty { position: absolute; inset: 50% 1rem auto; text-align: center; color: #aaa0bb; font-size: 12px; pointer-events: none; }
+.risk-presets { border: 1px solid #494052; border-radius: 8px; margin: 1rem 0; }
+@media(max-width:700px) { .activity-chart-grid { grid-template-columns: 1fr; } .operations-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media(max-width:700px) { .activity-chart svg text { font-size: 20px; } }

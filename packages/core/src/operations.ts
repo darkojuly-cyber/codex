@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { AppError, type Actor } from './config.js';
+import { riskMatches, riskPresets } from './risk-rules.js';
+import type { Queryable } from '../../db/src.js';
 import type { Database } from '../../db/src.js';
 import type { Transport } from './transport.js';
 const snowflake = z.string().regex(/^\d{17,20}$/);
-export const monitoringSchema = z.object({ enabled: z.boolean(), channelIds: z.array(snowflake).max(30), excludedCategoryIds: z.array(snowflake).max(30), keywords: z.array(z.string().trim().min(2).max(60)).max(50) }).strict();
+export const monitoringSchema = z.object({ enabled: z.boolean(), channelIds: z.array(snowflake).max(30), excludedCategoryIds: z.array(snowflake).max(30), keywords: z.array(z.string().trim().min(2).max(60)).max(50), presets: z.array(z.enum(riskPresets)).max(2).optional() }).strict();
 const emptySettings = { enabled: false, channelIds: [], excludedCategoryIds: [], keywords: [] };
 export class Operations {
   constructor(readonly db: Database, readonly transport: Transport, readonly mock: boolean) {}
-  async initialize() { await this.db.query('INSERT INTO operations_settings(id,body) VALUES(1,$1) ON CONFLICT(id) DO NOTHING', [JSON.stringify(emptySettings)]); }
+  async initialize() { await this.db.query('INSERT INTO operations_settings(id,body) VALUES(1,$1) ON CONFLICT(id) DO NOTHING', [JSON.stringify(emptySettings)]); await this.db.query('INSERT INTO community_lifetime(id) VALUES(1) ON CONFLICT(id) DO NOTHING'); }
   require(actor: Actor, root = false) { if (root ? actor.role !== 'SUPER_ADMIN' : actor.role === 'SUPPORT') throw new AppError(403, 'FORBIDDEN'); }
   async observeProfile(user: string, name: string, username = '') {
     if (!name.trim()) return;
@@ -27,7 +29,7 @@ export class Operations {
   async saveSettings(actor: Actor, input: unknown) {
     this.require(actor, true);
     const data = z.object({ body: monitoringSchema, expectedVersion: z.number().int().positive() }).strict().parse(input);
-    if (data.body.enabled && (!data.body.channelIds.length || !data.body.keywords.length)) throw new AppError(400, 'RISK_SCOPE_REQUIRED');
+    if (data.body.enabled && (!data.body.channelIds.length || !data.body.keywords.length && !data.body.presets?.length)) throw new AppError(400, 'RISK_SCOPE_REQUIRED');
     const rows = await this.db.query('UPDATE operations_settings SET body=$1,revision=revision+1,updated_by=$2,updated_at=now() WHERE id=1 AND revision=$3 RETURNING *', [JSON.stringify(data.body), actor.id, data.expectedVersion]);
     if (!rows.length) throw new AppError(409, 'CONFIG_CHANGED_RELOAD');
     await this.audit(actor, 'risk.settings_updated', 'monitoring'); return rows[0];
@@ -50,8 +52,18 @@ export class Operations {
       return row;
     });
   }
-  async heartbeat(members: boolean, messages: boolean, content: boolean) {
-    await this.db.query('INSERT INTO gateway_observation(id,members_enabled,messages_enabled,content_enabled) VALUES(1,$1,$2,$3) ON CONFLICT(id) DO UPDATE SET last_seen_at=now(),members_enabled=$1,messages_enabled=$2,content_enabled=$3', [members, messages, content]);
+  async heartbeat(members: boolean, messages: boolean, content: boolean, memberCount?: number) {
+    const count = members && Number.isSafeInteger(memberCount) && memberCount! >= 0 ? memberCount! : null;
+    await this.db.transaction(async tx => {
+      await tx.query('INSERT INTO gateway_observation(id,members_enabled,messages_enabled,content_enabled,member_count,member_count_at) VALUES(1,$1,$2,$3,$4,CASE WHEN $4::integer IS NOT NULL THEN now() ELSE NULL END) ON CONFLICT(id) DO UPDATE SET last_seen_at=now(),members_enabled=$1,messages_enabled=$2,content_enabled=$3,member_count=$4,member_count_at=CASE WHEN $4::integer IS NOT NULL THEN now() ELSE NULL END', [members, messages, content, count]);
+      await tx.query("INSERT INTO community_capture_minute(minute,members_seen,messages_seen) VALUES(date_trunc('minute',now()),$1,$2) ON CONFLICT(minute) DO UPDATE SET members_seen=community_capture_minute.members_seen OR $1,messages_seen=community_capture_minute.messages_seen OR $2", [members, messages]);
+    });
+  }
+  private async countEvent(tx: Queryable, key: string, kind: string, user: string, at: Date, channel: string | null = null) {
+    const rows = await tx.query('INSERT INTO community_event(event_key,kind,user_id,channel_id,occurred_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT(event_key) DO NOTHING RETURNING event_key', [key, kind, user, channel, at]);
+    if (!rows.length) return;
+    await tx.query("UPDATE community_lifetime SET joins=joins+CASE WHEN $1='JOIN' THEN 1 ELSE 0 END,leaves=leaves+CASE WHEN $1='LEAVE' THEN 1 ELSE 0 END,messages=messages+CASE WHEN $1='MESSAGE' THEN 1 ELSE 0 END WHERE id=1", [kind]);
+    if (kind === 'MESSAGE') await tx.query('INSERT INTO community_lifetime_speaker(user_id) VALUES($1) ON CONFLICT(user_id) DO NOTHING', [user]);
   }
   async membership(kind: 'JOIN' | 'LEAVE', user: string, key: string, at = new Date()) {
     await this.db.transaction(async tx => {
@@ -61,17 +73,17 @@ export class Operations {
       if (kind === 'JOIN' && (await tx.query('SELECT event_key FROM community_event WHERE event_key=$1', [key])).length) return;
       const eventKey = kind === 'LEAVE' && presence.last_join_key ? `leave:${user}:${presence.last_join_key}` : key;
       await tx.query("UPDATE member_presence SET state=$2,last_join_key=CASE WHEN $2='PRESENT' THEN $3 ELSE last_join_key END WHERE user_id=$1", [user, kind === 'JOIN' ? 'PRESENT' : 'ABSENT', key]);
-      await tx.query('INSERT INTO community_event(event_key,kind,user_id,occurred_at) VALUES($1,$2,$3,$4) ON CONFLICT(event_key) DO NOTHING', [eventKey, kind, user, at]);
+      await this.countEvent(tx, eventKey, kind, user, at);
     });
   }
-  async message(input: { id: string; user: string; channel: string; category: string | null; parent: string | null; at: Date; content?: string }) {
+  async message(input: { id: string; user: string; channel: string; category: string | null; parent: string | null; at: Date; content?: string; mentionCount?: number; mentionEveryone?: boolean }) {
     const [ticket] = await this.db.query('SELECT id FROM ticket WHERE private_channel_id=$1 OR private_channel_id=$2 LIMIT 1', [input.channel, input.parent]);
-    if (ticket) return;
-    await this.db.query("INSERT INTO community_event(event_key,kind,user_id,channel_id,occurred_at) VALUES($1,'MESSAGE',$2,$3,$4) ON CONFLICT(event_key) DO NOTHING", [input.id, input.user, input.channel, input.at]);
+    if (ticket || input.at.getTime() < Date.now() - 90 * 86400000) return;
+    await this.db.transaction(tx => this.countEvent(tx, input.id, 'MESSAGE', input.user, input.at, input.channel));
     const [settings] = await this.db.query('SELECT body FROM operations_settings WHERE id=1');
     const config = monitoringSchema.parse(settings.body);
     if (!config.enabled || !config.channelIds.includes(input.channel) && !(input.parent && config.channelIds.includes(input.parent)) || input.category && config.excludedCategoryIds.includes(input.category) || !input.content) return;
-    const matches = config.keywords.filter(word => input.content!.normalize('NFKC').toLocaleLowerCase().includes(word.normalize('NFKC').toLocaleLowerCase()));
+    const matches = riskMatches(input.content, config.keywords, config.presets ?? [], input.mentionCount, input.mentionEveryone);
     if (matches.length) await this.db.query('INSERT INTO risk_signal(message_id,user_id,channel_id,matches,created_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT(message_id) DO NOTHING', [input.id, input.user, input.channel, JSON.stringify(matches), input.at]);
   }
   async overview(actor: Actor, days: number, timezone: string) {
@@ -80,9 +92,20 @@ export class Operations {
     const params = [timezone, days];
     const where = "occurred_at >= (date_trunc('day',now() AT TIME ZONE $1)-($2-1)*interval '1 day') AT TIME ZONE $1 AND occurred_at<=now()";
     const [totals] = await this.db.query(`SELECT count(*) FILTER(WHERE kind='JOIN')::int AS joins,count(*) FILTER(WHERE kind='LEAVE')::int AS leaves,count(*) FILTER(WHERE kind='MESSAGE')::int AS messages,count(DISTINCT user_id) FILTER(WHERE kind='MESSAGE')::int AS speakers FROM community_event WHERE ${where}`, params);
-    const daily = await this.db.query(`SELECT (occurred_at AT TIME ZONE $1)::date::text AS day,count(*) FILTER(WHERE kind='JOIN')::int AS joins,count(*) FILTER(WHERE kind='LEAVE')::int AS leaves,count(*) FILTER(WHERE kind='MESSAGE')::int AS messages,count(DISTINCT user_id) FILTER(WHERE kind='MESSAGE')::int AS speakers FROM community_event WHERE ${where} GROUP BY 1 ORDER BY 1`, params);
+    const observed = await this.db.query(`SELECT (occurred_at AT TIME ZONE $1)::date::text AS day,count(*) FILTER(WHERE kind='JOIN')::int AS joins,count(*) FILTER(WHERE kind='LEAVE')::int AS leaves,count(*) FILTER(WHERE kind='MESSAGE')::int AS messages,count(DISTINCT user_id) FILTER(WHERE kind='MESSAGE')::int AS speakers FROM community_event WHERE ${where} GROUP BY 1 ORDER BY 1`, params);
+    const calendar = await this.db.query("SELECT d::date::text AS day FROM generate_series((now() AT TIME ZONE $1)::date-($2::integer-1),(now() AT TIME ZONE $1)::date,interval '1 day') d", params);
+    const capture = await this.db.query("SELECT (minute AT TIME ZONE $1)::date::text AS day,bool_or(members_seen) AS members,bool_or(messages_seen) AS messages FROM community_capture_minute WHERE minute>=((now() AT TIME ZONE $1)::date-($2::integer-1)) AT TIME ZONE $1 GROUP BY 1", params);
+    const daily = calendar.map(bucket => {
+      const row = observed.find(item => item.day === bucket.day);
+      const seen = capture.find(item => item.day === bucket.day);
+      const members = !!seen?.members || Number(row?.joins ?? 0) + Number(row?.leaves ?? 0) > 0;
+      const messages = !!seen?.messages || Number(row?.messages ?? 0) > 0;
+      return { day: String(bucket.day), joins: members ? Number(row?.joins ?? 0) : null, leaves: members ? Number(row?.leaves ?? 0) : null, messages: messages ? Number(row?.messages ?? 0) : null, speakers: messages ? Number(row?.speakers ?? 0) : null };
+    });
+    const [all] = await this.db.query('SELECT l.*,(SELECT count(*)::integer FROM community_lifetime_speaker) AS speakers FROM community_lifetime l WHERE id=1');
+    const lifetime = { joins: Number(all.joins), leaves: Number(all.leaves), messages: Number(all.messages), speakers: Number(all.speakers), startedAt: all.started_at, legacyLimited: all.legacy_limited };
     const [risk] = await this.db.query("SELECT count(*)::int AS open FROM risk_signal WHERE status='OPEN'");
-    return { totals, daily, coverage: coverage ?? null, days, timezone, riskOpen: Number(risk.open), generatedAt: new Date().toISOString() };
+    return { totals, lifetime, daily, coverage: coverage ?? null, days, timezone, riskOpen: Number(risk.open), generatedAt: new Date().toISOString() };
   }
   async risks(actor: Actor, page = 1) { this.require(actor); z.number().int().min(1).max(100000).parse(page); const [count] = await this.db.query('SELECT count(*)::int AS total FROM risk_signal'); return { entries: await this.db.query('SELECT * FROM risk_signal ORDER BY created_at DESC,message_id DESC LIMIT 20 OFFSET $1', [(page - 1) * 20]), page, pageSize: 20, total: Number(count.total) }; }
   async review(actor: Actor, message: string, input: unknown) {
@@ -90,6 +113,6 @@ export class Operations {
     const rows = await this.db.query("UPDATE risk_signal SET status=$2,review_note=$3,reviewed_by=$4,reviewed_at=now() WHERE message_id=$1 AND status='OPEN' RETURNING *", [message, data.status, data.note, actor.id]);
     if (!rows.length) throw new AppError(409, 'RISK_ALREADY_REVIEWED'); await this.audit(actor, 'risk.reviewed', message); return rows[0];
   }
-  async cleanup() { await this.db.query("DELETE FROM community_event WHERE occurred_at<now()-interval '90 days'"); }
+  async cleanup() { await this.db.query("DELETE FROM community_event WHERE occurred_at<now()-interval '90 days'"); await this.db.query("DELETE FROM community_capture_minute WHERE minute<now()-interval '90 days'"); }
   private async audit(actor: Actor, action: string, entity: string) { await this.db.query('INSERT INTO audit_log(id,actor_id,action,entity_id) VALUES($1,$2,$3,$4)', [randomUUID(), actor.id, action, entity]); }
 }

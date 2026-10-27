@@ -8,5 +8,5 @@ export async function observePublicMessage(message: Message, operations: Operati
   if (!channel || !('permissionsFor' in channel) || !channel.permissionsFor(message.guild.roles.everyone)?.has(PermissionFlagsBits.ViewChannel)) return;
   const scope = await messageChannelScope(message);
   await operations.observeProfile(message.author.id, message.member?.displayName || message.author.globalName || message.author.username, message.author.username);
-  await operations.message({ id: message.id, user: message.author.id, channel: message.channelId, category: scope.categoryId, parent: scope.parentChannelId, at: message.createdAt, content: contentEnabled ? message.content : undefined });
+  await operations.message({ id: message.id, user: message.author.id, channel: message.channelId, category: scope.categoryId, parent: scope.parentChannelId, at: message.createdAt, content: contentEnabled ? message.content : undefined, mentionCount: message.mentions?.users.size ?? 0, mentionEveryone: message.mentions?.everyone ?? false });
 }

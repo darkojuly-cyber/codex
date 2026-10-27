@@ -120,7 +120,7 @@ async function fetchBoost(user: string) {
 }
 let monitoringTimer: ReturnType<typeof setInterval> | undefined;
 client.once('clientReady', () => {
-  const heartbeat = () => { if (client.isReady()) void service.operations.heartbeat(env.GUILD_MEMBERS_INTENT === 'true', true, env.MESSAGE_CONTENT_INTENT === 'true').catch(welcomeFailed); };
+  const heartbeat = () => { if (client.isReady()) void service.operations.heartbeat(env.GUILD_MEMBERS_INTENT === 'true', true, env.MESSAGE_CONTENT_INTENT === 'true', client.guilds.cache.get(env.DISCORD_GUILD_ID!)?.memberCount).catch(welcomeFailed); };
   heartbeat(); monitoringTimer = setInterval(heartbeat, 30000); monitoringTimer.unref();
   void service.operations.cleanup().catch(welcomeFailed);
 });

@@ -11,6 +11,7 @@ import type { Env } from '../../../packages/core/src/env.js';
 import type { CommunityService } from '../../../packages/core/src/service.js';
 import { DiscordTransport } from '../../../packages/core/src/transport.js';
 import { auth } from './auth.js';
+import { ids } from '../../../packages/core/src/env.js';
 
 export async function createApp(service: CommunityService, env: Env) {
   const app = Fastify({ logger: { level: 'info', redact: ['req.headers.cookie', 'req.headers.authorization', 'req.headers.x-csrf-token', 'res.headers.set-cookie'] }, logController: new LogController({ disableRequestLogging: true }), bodyLimit: 32768 });
@@ -36,6 +37,22 @@ export async function createApp(service: CommunityService, env: Env) {
     return { status: 'ok', localProjectId: createHash('sha256').update(resolve(process.cwd()).toLowerCase()).digest('hex'), mode: env.APP_MODE.toUpperCase(), database: env.DATABASE_URL ? 'PostgreSQL' : 'PGlite (local)', discord: env.APP_MODE === 'mock' ? 'NOT_CONNECTED' : 'GATEWAY_STATUS_NOT_CHECKED', writesEnabled: env.DISCORD_WRITES_ENABLED === 'true' };
   });
   app.get('/api/dashboard', request => service.dashboard(request.actor));
+  app.post('/api/members/resolve', async request => {
+    const { ids: members } = z.object({ ids: z.array(z.string().regex(/^\d{17,20}$/)).max(30) }).strict().parse(request.body);
+    const entries = [];
+    for (let offset = 0; offset < members.length; offset += 5) entries.push(...await Promise.all(members.slice(offset, offset + 5).map(user => service.operations.profile(user))));
+    return { entries };
+  });
+  app.get('/api/members/:id', request => service.operations.profile(z.object({ id: z.string().max(40) }).parse(request.params).id));
+  app.get('/api/operations', async request => {
+    const { days } = z.object({ days: z.coerce.number().int().min(1).max(30).default(7) }).strict().parse(request.query);
+    return { ...await service.operations.overview(request.actor, days, (await service.current()).body.timezone), monitoring: await service.operations.settings(request.actor), board: await service.xp.leaderboard('weekly', 1), guildId: env.DISCORD_GUILD_ID ?? null };
+  });
+  app.get('/api/operations/risks', request => service.operations.risks(request.actor, z.object({ page: z.coerce.number().int().positive().default(1) }).parse(request.query).page));
+  app.patch('/api/operations/monitoring', request => service.operations.saveSettings(request.actor, request.body));
+  app.post('/api/operations/risks/:id/review', request => service.operations.review(request.actor, z.object({ id: z.string().regex(/^\d{17,20}$/) }).parse(request.params).id, request.body));
+  app.get('/api/staff', async request => ({ entries: await service.operations.staff(request.actor), roots: ids(env.SUPER_ADMIN_USER_IDS), inheritedRoles: { COMMUNITY_MANAGER: ids(env.STAFF_ROLE_IDS), MODERATOR: ids(env.MODERATOR_ROLE_IDS), SUPPORT: ids(env.SUPPORT_ROLE_IDS) } }));
+  app.put('/api/staff/:id', request => service.operations.authorize(request.actor, z.object({ id: z.string().regex(/^\d{17,20}$/) }).parse(request.params).id, request.body, ids(env.SUPER_ADMIN_USER_IDS)));
   app.get('/api/config', async request => {
     service.require(request.actor, 'config');
     return { current: await service.current(), revisions: await service.db.query('SELECT * FROM config_revision ORDER BY version DESC LIMIT 50') };

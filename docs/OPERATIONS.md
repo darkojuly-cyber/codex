@@ -1,6 +1,6 @@
 # 管理员操作指南与 API
 
-登录页与后台页头可通过 **语言 / Language** 切换简体中文或英文，偏好在当前浏览器保存。下文英文页名的中文对应为：Overview＝概览，Tickets＝工单，Messaging＝消息中心，Mimo & Ideas＝Mimo 与灵感机，Lifecycle＝运营阶段，Settings＝设置，Audit＝审计日志。配置内容、原始 JSON 和 Discord 用户文案不会自动翻译。
+登录页与后台页头可通过 **语言 / Language** 切换简体中文或英文，偏好在当前浏览器保存。下文英文页名的中文对应为：Overview＝概览，Tickets＝工单，Messaging＝消息中心，Mimo & Ideas＝Mimo 与灵感机，Settings＝设置（已合并原运营阶段），Audit＝审计日志。配置内容、原始 JSON 和 Discord 用户文案不会自动翻译。
 
 登录状态使用持久化 HttpOnly Cookie 和数据库会话保存，有效期为最近一次成功打开/刷新后台后的 30 天。刷新先恢复会话，正常服务重启或关闭浏览器后重新打开，无需重复授权。请始终使用同一地址（本机为 `https://localhost:8443`）；`localhost` 与 `127.0.0.1` 不共享 Cookie，无痕窗口和清理浏览器 Cookie 也不会保留登录。过期后需要重新登录；主动退出立即撤销服务器会话。每次管理请求仍检查当前员工权限，撤销角色后不会因长期登录继续授权。网络或 API 暂时不可用时显示重试，不直接跳转授权。
 
@@ -12,8 +12,8 @@
 
 1. **Mimo & Ideas**：Surprise Me → Generate Game Prompt，生成可复制的完整文本。每日 UTC 限额从发布配置读取；抽种子每用户每小时最多 60 次，最近三次抽取降重复。
 2. **Test private support**：创建 Mock ticket；在 Tickets 查看、分配并写理由更改状态。Support 只可查看自己创建/分配给自己的工单，其他 ID 返回 404；Mods 可处理工单并在授权工单内回复，但不能修改配置或发布社区公告。
-3. **Settings**：输入已审定频道 Snowflake IDs（本地测试可以明确使用测试 ID）→ Save configuration draft。
-4. **Lifecycle**：Inspect 草稿可查看完整内容和对应预览 → Publish 明确确认。配置冲突会要求刷新，不能静默覆盖。Restore as draft 不立即发布。
+3. **Settings**：统一编辑阶段、功能开关、链接和已审定频道 ID → Save configuration draft。
+4. **Settings → 审核与发布**：查看草稿完整内容 → Publish 明确确认。配置冲突会要求刷新，不能静默覆盖。Restore as draft 不立即发布。
 5. 启用 messaging 前绑定发布频道白名单；编辑和保存新草稿，确认后发布。
 6. **Messaging**：填单个白名单频道 ID、纯文本和时间 → Save draft → 检查预览 → Confirm delivery。空时间为立即；浏览器本地时间转换 UTC 后入库。后台时区字段用于配置，当前列表显示的是浏览器本地时间，并在表单明确说明；未实现可选后台时区格式化。
 7. 任务执行不依赖浏览器页面打开。Refresh 查回执；关闭重开服务后继续处理未发任务。未来任务可取消；SENDING 已被 Worker 抢占的任务不可保证取消，API 拒绝取消。
@@ -45,7 +45,9 @@ Mock 模式中的频道/消息 ID 带 `mock-` 前缀，不能用于真实 Discor
 | 自己创建/被分配的工单 | 是 | 是 | 是 | 是 |
 | 审计列表 | 是 | 是 | 是 | 否 |
 
-没有后台自助提权接口。Guild 角色和超级管理员白名单由部署配置控制。角色每次 API 请求重新查询；Discord 无法确认 membership 时拒绝访问。已登录但无授权角色的普通成员不会被授权。
+超级管理员可在设置中授权具体工作人员，个人授权覆盖 Guild 角色继承；其他工作人员不能自行提权。超级管理员白名单仍由部署配置保护。角色每次 API 请求重新查询；Discord 无法确认 membership 时拒绝访问。已登录但无授权角色的普通成员不会被授权。
+
+人员昵称、权限模板、运营统计与风险审核的详细说明见 [社区运营指南](COMMUNITY_OPERATIONS.md)。
 
 ## API 契约（V0.1）
 

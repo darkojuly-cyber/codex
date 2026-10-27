@@ -8,6 +8,7 @@ import { TemplatePromptProvider, type PromptProvider } from '../../ai-adapter/sr
 import type { WelcomeAppearance } from './welcome-card.js';
 import { ticketCategories, ticketPriorities, ticketStatuses } from './ticket-config.js';
 import { XpService } from './xp.js';
+import { Operations } from './operations.js';
 
 export type Row = Record<string, unknown>;
 type Revision = Row & { id: string; version: number; body: Config; status: string };
@@ -16,7 +17,8 @@ const ticketInput = z.object({ category: z.enum(ticketCategories), summary: z.st
 
 export class CommunityService {
   readonly xp: XpService;
-  constructor(readonly db: Database, readonly transport: Transport, readonly mock = true, readonly prompts: PromptProvider = new TemplatePromptProvider()) { this.xp = new XpService(db, transport.xpParticipant?.bind(transport)); }
+  readonly operations: Operations;
+  constructor(readonly db: Database, readonly transport: Transport, readonly mock = true, readonly prompts: PromptProvider = new TemplatePromptProvider()) { this.xp = new XpService(db, transport.xpParticipant?.bind(transport)); this.operations = new Operations(db, transport, mock); }
   async audit(tx: Queryable, actor: string, action: string, entity: string | null = null, detail: Row = {}) {
     await tx.query('INSERT INTO audit_log(id,actor_id,action,entity_id,detail) VALUES($1,$2,$3,$4,$5)', [randomUUID(), actor, action, entity, JSON.stringify(detail)]);
   }
@@ -33,6 +35,7 @@ export class CommunityService {
       }
     });
     await this.xp.initialize();
+    await this.operations.initialize();
     await this.db.query("UPDATE ticket SET status='UNKNOWN',error_code='TICKET_PROVISION_INTERRUPTED' WHERE status='PROVISIONING' AND created_at<now()-interval '2 minutes'");
     // An external send may have succeeded before a process died. Never blindly replay it.
     // Stale SENDING deliveries are surfaced as UNKNOWN by the worker after its lease interval.

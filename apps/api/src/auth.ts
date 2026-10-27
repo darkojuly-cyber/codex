@@ -3,8 +3,9 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { z } from 'zod';
 import type { Database } from '../../../packages/db/src.js';
 import { AppError, roles, type Actor, type Role } from '../../../packages/core/src/config.js';
-import { type Env, ids } from '../../../packages/core/src/env.js';
+import { type Env } from '../../../packages/core/src/env.js';
 import { REST, Routes } from 'discord.js';
+import { effectiveStaff } from '../../../packages/core/src/staff-access.js';
 
 declare module 'fastify' { interface FastifyRequest { actor: Actor; csrf: string } }
 const token = () => randomBytes(32).toString('base64url');
@@ -21,11 +22,7 @@ export function auth(app: FastifyInstance, db: Database, env: Env) {
     let member: { roles: string[] };
     try { member = await rest.get(Routes.guildMember(env.DISCORD_GUILD_ID!, userId)) as { roles: string[] }; }
     catch { throw new AppError(403, 'GUILD_MEMBERSHIP_UNAVAILABLE'); }
-    if (ids(env.SUPER_ADMIN_USER_IDS).includes(userId)) return 'SUPER_ADMIN';
-    if (member.roles.some(id => ids(env.STAFF_ROLE_IDS).includes(id))) return 'COMMUNITY_MANAGER';
-    if (member.roles.some(id => ids(env.MODERATOR_ROLE_IDS).includes(id))) return 'MODERATOR';
-    if (member.roles.some(id => ids(env.SUPPORT_ROLE_IDS).includes(id))) return 'SUPPORT';
-    throw new AppError(403, 'STAFF_ROLE_REQUIRED');
+    return (await effectiveStaff(db, env, userId, member.roles)).role;
   }
   async function createSession(reply: FastifyReply, userId: string, role: Role) {
     const session = token(); const csrf = token();
@@ -49,7 +46,7 @@ export function auth(app: FastifyInstance, db: Database, env: Env) {
     if (!sessionToken) throw new AppError(401, 'LOGIN_REQUIRED');
     const [session] = await db.query<{ user_id: string; role: Role; csrf: string }>('SELECT user_id,role,csrf FROM admin_session WHERE token_hash=$1 AND expires_at>now()', [hash(sessionToken)]);
     if (!session) throw new AppError(401, 'SESSION_EXPIRED');
-    const role = env.APP_MODE === 'mock' ? session.role : await guildRole(session.user_id);
+    const role = env.APP_MODE === 'mock' ? (await effectiveStaff(db, env, session.user_id, [], session.role)).role : await guildRole(session.user_id);
     request.actor = { id: session.user_id, role };
     request.csrf = session.csrf;
     if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method) && !equal(String(request.headers['x-csrf-token'] ?? ''), session.csrf)) throw new AppError(403, 'CSRF_REJECTED');

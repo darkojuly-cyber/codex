@@ -21,7 +21,7 @@ export async function runtime() {
       if (binding && binding.identity !== identity) throw new Error('Database belongs to another mode or Guild. Use a separate database; never mix mock and live data.');
       if (!binding) await tx.query('INSERT INTO environment_binding(id,identity) VALUES(1,$1)', [identity]);
     });
-    const transport = env.APP_MODE === 'mock' ? new MockTransport() : new DiscordTransport(env);
+    const transport = env.APP_MODE === 'mock' ? new MockTransport() : new DiscordTransport(env, db);
     const service = new CommunityService(db, transport, env.APP_MODE === 'mock');
     await service.initialize();
     return { env, db, transport, service };

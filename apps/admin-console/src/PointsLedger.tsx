@@ -1,3 +1,4 @@
+import { Person } from './People';
 import { useEffect, useRef, useState } from 'react';
 import { xpEvents } from '../../../packages/core/src/xp-config';
 import { formatDate, translateError, type Locale, type Values } from './i18n';
@@ -12,8 +13,8 @@ const emptyFilter: Filter = { memberId: '', event: '', from: '', to: '' };
 
 export function LedgerTable({ entries, locale, t, onMember, timezone }: { timezone?: string; entries: Row[]; locale: Locale; t: T; onMember?: (id: string) => void }) {
   return <div className="table-scroll points-ledger-table"><table><thead><tr>{['Date','Member','XP','Source','Reason','Rule version','Operator'].map(label => <th key={label}>{t(label)}</th>)}</tr></thead><tbody>{entries.map(row => <tr key={String(row.id)}>
-    <td>{timezone ? new Date(String(row.occurred_at)).toLocaleString(locale === 'zh-CN' ? 'zh-CN' : 'en-US', { timeZone: timezone }) : formatDate(locale, row.occurred_at)}</td><td>{onMember ? <button className="link-button" onClick={() => onMember(String(row.user_id))}>{String(row.user_id)}</button> : String(row.user_id)}</td>
-    <td>{Number(row.amount) > 0 ? '+' : ''}{String(row.amount)}</td><td>{String(row.source_key)}</td><td>{String(row.reason)}</td><td>v{String(row.rule_version)}</td><td>{String(row.actor_id)}</td>
+    <td>{timezone ? new Date(String(row.occurred_at)).toLocaleString(locale === 'zh-CN' ? 'zh-CN' : 'en-US', { timeZone: timezone }) : formatDate(locale, row.occurred_at)}</td><td>{onMember ? <button className="link-button" onClick={() => onMember(String(row.user_id))}><Person id={row.user_id}/></button> : <Person id={row.user_id}/>}</td>
+    <td>{Number(row.amount) > 0 ? '+' : ''}{String(row.amount)}</td><td>{String(row.source_key)}</td><td>{String(row.reason)}</td><td>v{String(row.rule_version)}</td><td><Person id={row.actor_id}/></td>
   </tr>)}</tbody></table></div>;
 }
 export function PointsPagination({ data, busy, load, t }: { data: { page: number; pageSize: number; total: number }; busy: boolean; load: (page: number) => void; t: T }) {
@@ -64,7 +65,7 @@ export function PointsMemberDialog({ userId, api, locale, t, onClose }: { userId
     finally { if (id === requestId.current) setBusy(false); }
   }
   useEffect(() => { setData(null); void load(); return () => { ++requestId.current; }; }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
-  return <PointsDialog title={t('Member points summary')} closeLabel={t('Close')} onClose={onClose}><p><strong>{t('Member')}: {userId}</strong></p>{error && <p className="error" role="alert">{translateError(locale, error)}</p>}
+  return <PointsDialog title={t('Member points summary')} closeLabel={t('Close')} onClose={onClose}><p><strong>{t('Member')}: <Person id={userId}/></strong></p>{error && <p className="error" role="alert">{translateError(locale, error)}</p>}
     {data ? <><p>{t(!data.summary.eligible ? 'Excluded from the points activity' : data.summary.rankEligible ? 'Earning and ranking enabled' : 'Earning enabled · excluded from rankings')}</p><div className="points-member-stats">
       {[['Total points', data.summary.lifetimeXp], ['Points this week', data.summary.periodXp.weekly], ['Points this month', data.summary.periodXp.monthly]].map(([label, value]) => <article key={label}><small>{t(String(label))}</small><strong>{value}</strong></article>)}
     </div><p>{t('Weekly rank')}: {data.summary.ranks.weekly ? `#${data.summary.ranks.weekly}` : '—'} · {t('Monthly rank')}: {data.summary.ranks.monthly ? `#${data.summary.ranks.monthly}` : '—'} · {t('Overall rank')}: {data.summary.ranks.all_time ? `#${data.summary.ranks.all_time}` : '—'}</p><p className="muted">{data.summary.timezone}</p>

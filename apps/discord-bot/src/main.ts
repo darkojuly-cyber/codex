@@ -12,6 +12,7 @@ import { scoreGuildMessage } from './message-scope.js';
 import { showPoints, pointsUiVersion } from './points.js';
 import { handleTicketInteraction, ticketErrorText } from './tickets.js';
 import { pointsButtonIds } from './points-card.js';
+import { observePublicMessage } from './operations-gateway.js';
 import { DiscordTransport } from '../../../packages/core/src/transport.js';
 
 const preflight = readEnv();
@@ -19,9 +20,9 @@ if (preflight.APP_MODE !== 'discord') throw new Error('Use the local Console sim
 if (preflight.DISCORD_WRITES_ENABLED !== 'true') throw new Error('Bot interaction writes disabled. Complete sandbox review and explicitly enable DISCORD_WRITES_ENABLED.');
 const { env, service, db } = await runtime();
 const startedAt = new Date();
-const intents = [GatewayIntentBits.Guilds];
+const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages];
 if (env.GUILD_MEMBERS_INTENT === 'true') intents.push(GatewayIntentBits.GuildMembers);
-if (env.MESSAGE_CONTENT_INTENT === 'true') intents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
+if (env.MESSAGE_CONTENT_INTENT === 'true') intents.push(GatewayIntentBits.MessageContent);
 const client = new Client({ intents });
 const noMentions = { parse: [] as never[], users: [], roles: [], repliedUser: false };
 
@@ -86,9 +87,16 @@ const autoWelcome = automaticWelcome({ guildId: env.DISCORD_GUILD_ID!, startedAt
 function welcomeFailed(error: unknown) {
   console.error(JSON.stringify({ event: 'welcome.failed', ...providerErrorDetails(error) }));
 }
-client.on('guildMemberAdd', member => { void autoWelcome.joined(member).catch(welcomeFailed); });
+client.on('guildMemberAdd', member => {
+  void autoWelcome.joined(member).catch(welcomeFailed);
+  if (member.guild.id === env.DISCORD_GUILD_ID && !member.user.bot) void service.operations.observeProfile(member.id, member.displayName, member.user.username).then(() => service.operations.membership('JOIN', member.id, `join:${member.id}:${member.joinedTimestamp ?? Date.now()}`, member.joinedAt ?? new Date())).catch(welcomeFailed);
+});
+client.on('guildMemberRemove', member => {
+  if (member.guild.id === env.DISCORD_GUILD_ID && !member.user.bot) void service.operations.membership('LEAVE', member.id, `leave:${member.id}:${Date.now()}`).catch(welcomeFailed);
+});
 client.on('guildMemberUpdate', (oldMember, member) => { void autoWelcome.updated(oldMember, member).catch(welcomeFailed); });
 client.on('messageCreate', message => {
+  void observePublicMessage(message, service.operations, env.DISCORD_GUILD_ID!, env.MESSAGE_CONTENT_INTENT === 'true').catch(error => console.error(JSON.stringify({ event: 'operations.message_failed', ...providerErrorDetails(error) })));
   void scoreGuildMessage(message, service.xp, { enabled: env.MESSAGE_CONTENT_INTENT === 'true', guildId: env.DISCORD_GUILD_ID!, pointsChannelId: env.EVO_POINTS_CHANNEL_ID })
     .catch(error => console.error(JSON.stringify({ event: 'xp.message_failed', ...providerErrorDetails(error) })));
 });
@@ -110,13 +118,19 @@ client.on('guildMemberUpdate', (oldMember, member) => {
 async function fetchBoost(user: string) {
   return service.transport instanceof DiscordTransport ? service.transport.boostSince(user) : null;
 }
+let monitoringTimer: ReturnType<typeof setInterval> | undefined;
+client.once('clientReady', () => {
+  const heartbeat = () => { if (client.isReady()) void service.operations.heartbeat(env.GUILD_MEMBERS_INTENT === 'true', true, env.MESSAGE_CONTENT_INTENT === 'true').catch(welcomeFailed); };
+  heartbeat(); monitoringTimer = setInterval(heartbeat, 30000); monitoringTimer.unref();
+  void service.operations.cleanup().catch(welcomeFailed);
+});
 client.once('clientReady', () => console.log(JSON.stringify({ event: 'bot.ready', mode: 'DISCORD', pointsUiVersion, messageContentIntent: env.MESSAGE_CONTENT_INTENT, pid: process.pid, membersIntent: env.GUILD_MEMBERS_INTENT, warning: env.GUILD_MEMBERS_INTENT !== 'true' ? 'Automatic welcome unavailable; use /welcome' : undefined })));
 client.on('error', () => console.error('Discord Gateway error'));
 let shutdownRequested = false;
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
   if (shutdownRequested) return;
   shutdownRequested = true;
-  client.destroy(); void db.close();
+  clearInterval(monitoringTimer); client.destroy(); void db.close();
 });
 try { await client.login(env.DISCORD_TOKEN); }
 catch { console.error('Discord login failed. Verify token, Guild ID and privileged intent approval in environment settings.'); await db.close(); process.exitCode = 1; }

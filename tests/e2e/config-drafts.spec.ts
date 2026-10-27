@@ -13,10 +13,10 @@ test('preserves edits and saved drafts across configuration tabs, then publishes
   await page.getByLabel('Welcome template', { exact: false }).fill(welcome);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page.getByLabel('Welcome channel ID', { exact: true })).toHaveValue(channel);
-  await page.getByRole('button', { name: 'Lifecycle', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByLabel('welcome', { exact: true }).check();
   const saved = page.waitForResponse(response => response.url().endsWith('/api/config/drafts') && response.request().method() === 'POST');
-  await page.getByRole('button', { name: 'Validate & save draft' }).click();
+  await page.getByRole('button', { name: 'Save configuration draft' }).click();
   const revision = await (await saved).json();
   expect(revision.body.persona.welcome).toBe(welcome);
   expect(revision.body.channels.welcome).toBe(channel);
@@ -27,8 +27,9 @@ test('preserves edits and saved drafts across configuration tabs, then publishes
   await expect(page.getByLabel('Welcome template', { exact: false })).toHaveValue(welcome);
   const beforePublish = await (await page.request.get('/api/config')).json();
   expect(beforePublish.current.version).toBe(baseline.current.version);
-  await page.getByRole('button', { name: 'Lifecycle', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   page.on('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: 'Review & publish', exact: true }).click();
   const row = page.locator('.revision').filter({ has: page.getByText(`v${revision.version}`, { exact: true }) });
   await row.getByRole('button', { name: 'Publish', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Configuration published');

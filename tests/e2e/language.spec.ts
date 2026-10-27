@@ -12,7 +12,7 @@ test('Chinese and English switching persists, preserves drafts, and sends unchan
   await expect(page).toHaveTitle('EvoMeme 社区运营后台');
   await page.getByRole('button', { name: /进入后台.*超级管理员/ }).click();
   await expect(page.getByRole('heading', { name: '社区动态，一目了然。' })).toBeVisible();
-  for (const name of ['概览', '工单', '消息中心', 'Mimo 与灵感机', '运营阶段', '设置', '审计日志']) {
+  for (const name of ['概览', '工单', '消息中心', 'Mimo 与灵感机', '设置', '审计日志']) {
     await expect(page.getByRole('navigation').getByRole('button', { name, exact: true })).toBeVisible();
   }
   await page.screenshot({ path: 'test-results/overview-zh-CN.png', fullPage: true });
@@ -42,10 +42,10 @@ test('Chinese and English switching persists, preserves drafts, and sends unchan
   await expect(page.getByRole('status')).toContainText('Draft saved');
   await language.selectOption('zh-CN');
   await expect(page.getByRole('status')).toContainText('草稿已保存');
-  await page.getByRole('navigation').getByRole('button', { name: '运营阶段', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '设置', exact: true }).click();
   await page.getByLabel('当前运营阶段').selectOption('WEB_LIVE');
   const phaseRequest = page.waitForRequest(request => request.url().endsWith('/api/config/drafts') && request.method() === 'POST');
-  await page.getByRole('button', { name: '校验并保存草稿', exact: true }).click();
+  await page.getByRole('button', { name: '保存配置草稿', exact: true }).click();
   expect((await phaseRequest).postDataJSON().phase).toBe('WEB_LIVE');
   await expect(page.getByRole('status')).toContainText('草稿已保存');
   await page.getByRole('navigation').getByRole('button', { name: '概览', exact: true }).click();

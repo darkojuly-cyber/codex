@@ -1,3 +1,4 @@
+import { Person } from './People';
 import { useEffect, useRef, useState } from 'react';
 import { ticketCategories, ticketPriorities, ticketStatuses } from '../../../packages/core/src/ticket-config';
 import { PointsDialog } from './PointsDialog';
@@ -5,7 +6,7 @@ import { PointsPagination } from './PointsLedger';
 import { formatDate, translateError, type Locale, type Values } from './i18n';
 type Row = Record<string, unknown>;
 type Api = <T = Row>(path: string, method?: string, input?: unknown) => Promise<T>;
-type Ticket = Row & { id: string; seq: number; revision: number; status: string; priority: string; assigned_to: string | null; events: { id: string; actor_id: string; action: string; created_at: string; detail: { note?: string } }[]; eventPage: number; eventPageSize: number; eventCount: number; discord_url: string | null; issue_award: { amount: number } | null; replies: { id: string; body: string; status: string; error_code: string | null }[] };
+type Ticket = Row & { id: string; seq: number; revision: number; status: string; priority: string; assigned_to: string | null; events: { id: string; actor_id: string; action: string; created_at: string; detail: { note?: string } }[]; eventPage: number; eventPageSize: number; eventCount: number; discord_url: string | null; issue_award: { amount: number } | null; replies: { id: string; authored_by: string; body: string; status: string; error_code: string | null }[] };
 type Filter = { search: string; status: string; priority: string; category: string; member: string; assigned: string };
 const emptyFilter: Filter = { search: '', status: '', priority: '', category: '', member: '', assigned: '' };
 export function TicketsPanel({ api, active, refreshKey, locale, t, userId, role }: { api: Api; active: boolean; refreshKey: number; locale: Locale; t: (key: string, values?: Values) => string; userId: string; role: string }) {
@@ -60,12 +61,12 @@ export function TicketsPanel({ api, active, refreshKey, locale, t, userId, role 
         <label>{t('Assignee ID filter')}<input maxLength={30} value={filter.assigned} onChange={event => setFilter({ ...filter, assigned: event.target.value.trim() })}/></label>
         <div className="points-filter-actions"><button disabled={busy}>{t('Search tickets')}</button><button type="button" disabled={busy} onClick={() => { setFilter(emptyFilter); void run(() => load(1, emptyFilter)); }}>{t('Clear filters')}</button></div>
       </form>
-      {data ? <>{data.entries.length ? <div className="table-scroll"><table><thead><tr>{['Ticket','Summary','Status','Priority','Owner','Created'].map(label => <th key={label}>{t(label)}</th>)}</tr></thead><tbody>{data.entries.map(ticket => <tr key={ticket.id}>
-        <td><button className="link-button" disabled={busy} onClick={() => void run(() => open(ticket.id))}>#{ticket.seq}</button></td><td>{String(ticket.summary)}</td><td>{t(ticket.status)}</td><td>{t(ticket.priority)}</td><td>{ticket.assigned_to ?? '—'}</td><td>{formatDate(locale, ticket.created_at)}</td>
+      {data ? <>{data.entries.length ? <div className="table-scroll"><table><thead><tr>{['Ticket','Summary','Status','Priority','Requester','Owner','Created'].map(label => <th key={label}>{t(label)}</th>)}</tr></thead><tbody>{data.entries.map(ticket => <tr key={ticket.id}>
+        <td><button className="link-button" disabled={busy} onClick={() => void run(() => open(ticket.id))}>#{ticket.seq}</button></td><td>{String(ticket.summary)}</td><td>{t(ticket.status)}</td><td>{t(ticket.priority)}</td><td><Person id={ticket.creator_id}/></td><td><Person id={ticket.assigned_to}/></td><td>{formatDate(locale, ticket.created_at)}</td>
       </tr>)}</tbody></table></div> : <div className="empty">{t('No tickets yet.')}<small>{t('Use /ticket or the help-desk panel to open a private support request.')}</small></div>}<PointsPagination data={data} busy={busy} load={page => { void run(() => load(page)); }} t={t}/></> : <p>{t('Loading…')}</p>}
     </section>
     {detail && <PointsDialog title={`${t('Ticket #')}${detail.seq} · ${detail.summary}`} closeLabel={t('Close')} onClose={() => { if (!dirty || window.confirm(t('Discard unsaved ticket changes?'))) { setDetail(null); setError(''); setNotice(''); } }}>
-      {messages}<p className="prewrap">{String(detail.description)}</p>{!!detail.environment && <p>{t('Device / environment')}: {String(detail.environment)}</p>}
+      {messages}<p>{t("Requester")}: <Person id={detail.creator_id}/></p><p className="prewrap">{String(detail.description)}</p>{!!detail.environment && <p>{t('Device / environment')}: {String(detail.environment)}</p>}
       <p>{t('Status')}: <strong>{t(detail.status)}</strong> · {t('Priority')}: {t(detail.priority)}</p>
       <p className="muted">{t('Discord synchronization')}: {t(String(detail.sync_status))}{detail.sync_error ? ` · ${translateError(locale, String(detail.sync_error))}` : ''}</p>
       {detail.discord_url && <a className="button" href={detail.discord_url} target="_blank" rel="noreferrer">{t('Open private Discord conversation')}</a>}
@@ -82,7 +83,7 @@ export function TicketsPanel({ api, active, refreshKey, locale, t, userId, role 
       }); }}><fieldset disabled={busy || !ticketStatuses.some(status => status === detail.status)} style={{ border: 0, padding: 0, minWidth: 0 }}><div className="form-grid">
         <label>{t('Status')}<select value={edit.status} onChange={event => setEdit({ ...edit, status: event.target.value })}>{ticketStatuses.map(value => <option key={value} value={value}>{t(value)}</option>)}</select></label>
         <label>{t('Priority')}<select value={edit.priority} onChange={event => setEdit({ ...edit, priority: event.target.value })}>{ticketPriorities.map(value => <option key={value} value={value}>{t(value)}</option>)}</select></label>
-        <label>{t('Assignee Discord user ID')}<input disabled={role === 'SUPPORT'} maxLength={30} value={edit.assignedTo} onChange={event => setEdit({ ...edit, assignedTo: event.target.value.trim() })}/></label>
+        <label>{t('Assignee Discord user ID')}<input disabled={role === 'SUPPORT'} maxLength={30} value={edit.assignedTo} onChange={event => setEdit({ ...edit, assignedTo: event.target.value.trim() })}/><Person id={edit.assignedTo}/></label>
       </div><label>{t('Reason / internal note')}<textarea required minLength={3} maxLength={1000} value={edit.note} onChange={event => setEdit({ ...edit, note: event.target.value })}/></label><p className="muted">{t('Internal notes are visible only to authorized staff in this console. They are never posted in the user’s channel.')}</p>
         <button disabled={busy || !dirty || edit.note.trim().length < 3 || detail.revision !== version}>{t('Save status & note')}</button>
         <button type="button" disabled={busy || dirty || !!detail.assigned_to && detail.assigned_to !== userId || role === 'SUPPORT' && detail.assigned_to !== userId} onClick={() => void run(async () => { await api(`/tickets/${detail.id}`, 'PATCH', { status: 'INVESTIGATING', assignedTo: userId, note: 'Claimed for investigation', expectedVersion: version }); await open(detail.id); await load(data?.page ?? 1); setNotice('Ticket updated. Discord synchronization is queued; internal notes stay private.'); })}>{t('Claim ticket')}</button>
@@ -95,8 +96,8 @@ export function TicketsPanel({ api, active, refreshKey, locale, t, userId, role 
         event.preventDefault(); if (!window.confirm(t('Send this reply to the requester in their private Discord channel?'))) return;
         void run(async () => { await api(`/tickets/${detail.id}/reply`, 'POST', { body: reply, requestKey: replyKey }); setReply(''); setReplyKey(crypto.randomUUID()); await open(detail.id, detail.eventPage, false); setNotice('Reply queued. Refresh to check delivery; uncertain results require manual verification.'); });
       }}><label>{t('User-visible reply')}<textarea required maxLength={1900} value={reply} onChange={event => setReply(event.target.value)}/></label><button disabled={busy || !reply.trim() || detail.status === 'CLOSED'}>{t('Send reply')}</button></form>
-      {detail.replies.map(item => <article className="ticket-event" key={item.id}><strong>{t(item.status)}</strong>{item.error_code && <small>{translateError(locale, item.error_code)}</small>}<p className="prewrap">{item.body}</p></article>)}</section>
-      <h3>{t('History')}</h3>{detail.events.map(event => <article className="ticket-event" key={event.id}><strong>{t(event.action)}</strong><small>{formatDate(locale, event.created_at)} · {event.actor_id}</small><p className="prewrap">{event.detail.note ?? ''}</p></article>)}
+      {detail.replies.map(item => <article className="ticket-event" key={item.id}><strong>{t(item.status)}</strong><small><Person id={item.authored_by}/></small>{item.error_code && <small>{translateError(locale, item.error_code)}</small>}<p className="prewrap">{item.body}</p></article>)}</section>
+      <h3>{t('History')}</h3>{detail.events.map(event => <article className="ticket-event" key={event.id}><strong>{t(event.action)}</strong><small>{formatDate(locale, event.created_at)} · <Person id={event.actor_id}/></small><p className="prewrap">{event.detail.note ?? ''}</p></article>)}
       <PointsPagination data={{ page: detail.eventPage, pageSize: detail.eventPageSize, total: detail.eventCount }} busy={busy} load={page => { void run(() => open(detail.id, page, false)); }} t={t}/>
     </PointsDialog>}
   </>;

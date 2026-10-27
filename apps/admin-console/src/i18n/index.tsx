@@ -37,6 +37,14 @@ export function translate(locale: Locale, key: string, values: Values = {}) {
 }
 
 const errorCopy: Record<string, string> = {
+  GUILD_MEMBER_NOT_FOUND: '找不到该服务器成员，请核对用户 ID；目标必须仍在服务器中。',
+  MEMBER_LOOKUP_UNAVAILABLE: '暂时无法核实目标成员，请稍后重试；现有授权未更改。',
+  STAFF_HUMAN_REQUIRED: '工作人员授权仅支持真实用户账号，不能授权机器人。',
+  RISK_SCOPE_REQUIRED: '启用前请填写公开频道 ID 和关键词。',
+  ROOT_ACCESS_PROTECTED: '不能在后台修改受保护的超级管理员授权。',
+  STAFF_ACCESS_REVOKED: '该账号的后台访问权限已被撤销。',
+  RISK_ALREADY_REVIEWED: '该线索已被审核，请刷新查看。',
+
   'TICKET_REPLY_CLOSED': '该工单不接受新回复，请先在允许时间内重新打开。',
   'TICKET_REPLY_KEY_CONFLICT': '该回复请求已经使用过。请刷新核对已有回复，再发送其他内容。',
   'TICKET_REPLY_UNKNOWN': '无法确认 Discord 是否已接收，请先到频道核查，不要直接重复发送。',

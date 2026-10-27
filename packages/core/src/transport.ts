@@ -4,6 +4,8 @@ import { AppError } from './config.js';
 import type { Env } from './env.js';
 import { ticketCard, ticketPanelCard } from './ticket-card.js';
 import { ids } from './env.js';
+import type { Database } from '../../db/src.js';
+import { effectiveStaff } from './staff-access.js';
 import { welcomeCard, type WelcomeAppearance } from './welcome-card.js';
 
 type SendOptions = (WelcomeAppearance & { welcomeCard: boolean; mentionUser: string }) | { ticketCard: Record<string, unknown> };
@@ -18,6 +20,7 @@ export interface Transport {
   auditGuild(): Promise<unknown>;
   syncTicket(channel: string, cardId: string | null, ticket: Record<string, unknown>): Promise<void>;
   publishTicketPanel(channel: string, messageId: string | null): Promise<string>;
+  memberProfile?(user: string): Promise<{ displayName: string; username: string; bot?: boolean }>;
   ticketStaff?(user: string): Promise<import('./config.js').Actor>;
   xpParticipant?(user: string): Promise<{ canEarn: boolean; canRank: boolean }>;
 }
@@ -42,7 +45,7 @@ export class MockTransport implements Transport {
 }
 export class DiscordTransport implements Transport {
   readonly rest: REST;
-  constructor(private env: Env) { this.rest = new REST({ version: '10', retries: 0, timeout: 15000 }).setToken(env.DISCORD_TOKEN!); }
+  constructor(private env: Env, private db?: Database) { this.rest = new REST({ version: '10', retries: 0, timeout: 15000 }).setToken(env.DISCORD_TOKEN!); }
   private writable() { if (this.env.DISCORD_WRITES_ENABLED !== 'true') throw new AppError(409, 'DISCORD_WRITES_DISABLED'); }
   async send(channelId: string, body: string, key: string, options?: SendOptions) {
     this.writable();
@@ -66,6 +69,10 @@ export class DiscordTransport implements Transport {
       throw new DeliveryError('DELIVERY_OUTCOME_UNKNOWN', 'ambiguous');
     }
   }
+  private async ticketOperators() {
+    const entries = this.db ? await this.db.query('SELECT user_id,role,revoked FROM staff_access') : [];
+    return { allowed: entries.filter(row => !row.revoked && ['COMMUNITY_MANAGER','MODERATOR'].includes(String(row.role))).map(row => String(row.user_id)), denied: entries.filter(row => row.revoked).map(row => String(row.user_id)), limited: entries.filter(row => !row.revoked && row.role === 'SUPPORT').map(row => String(row.user_id)) };
+  }
   async createTicket(userId: string, categoryId: string, seq: number) {
     this.writable();
     const staff = [...new Set([...ids(this.env.STAFF_ROLE_IDS), ...ids(this.env.MODERATOR_ROLE_IDS)])];
@@ -73,6 +80,7 @@ export class DiscordTransport implements Transport {
     const parent = await this.rest.get(Routes.channel(categoryId)) as { type: number; guild_id: string };
     if (parent.type !== ChannelType.GuildCategory || parent.guild_id !== this.env.DISCORD_GUILD_ID) throw new AppError(409, 'INVALID_TICKET_CATEGORY');
     const me = await this.rest.get(Routes.user()) as { id: string };
+    const operators = await this.ticketOperators();
     const view = PermissionFlagsBits.ViewChannel;
     const access = view | PermissionFlagsBits.SendMessages | PermissionFlagsBits.ReadMessageHistory | PermissionFlagsBits.AttachFiles;
     let channel: { id: string };
@@ -81,7 +89,8 @@ export class DiscordTransport implements Transport {
       permission_overwrites: [
         { id: this.env.DISCORD_GUILD_ID, type: 0, deny: view.toString(), allow: '0' },
         ...staff.map(id => ({ id, type: 0, allow: access.toString(), deny: '0' })),
-        ...ids(this.env.SUPER_ADMIN_USER_IDS).filter(id => id !== userId && id !== me.id).map(id => ({ id, type: 1, allow: access.toString(), deny: '0' })),
+        ...[...new Set([...ids(this.env.SUPER_ADMIN_USER_IDS), ...operators.allowed])].filter(id => id !== userId && id !== me.id).map(id => ({ id, type: 1, allow: access.toString(), deny: '0' })),
+        ...[...operators.denied, ...operators.limited].filter(id => id !== userId && id !== me.id && !ids(this.env.SUPER_ADMIN_USER_IDS).includes(id)).map(id => ({ id, type: 1, allow: '0', deny: view.toString() })),
         { id: userId, type: 1, allow: access.toString(), deny: '0' },
         { id: me.id, type: 1, allow: access.toString(), deny: '0' },
       ],
@@ -94,16 +103,20 @@ export class DiscordTransport implements Transport {
     if (!channel.id) throw new DeliveryError('TICKET_PROVISION_UNKNOWN', 'ambiguous');
     return channel.id;
   }
+  async memberProfile(user: string) {
+    let member: { nick?: string | null; user: { username: string; global_name?: string | null; bot?: boolean } };
+    try { member = await this.rest.get(Routes.guildMember(this.env.DISCORD_GUILD_ID!, user)) as typeof member; }
+    catch (error) { throw (error as { status?: number }).status === 404 ? new AppError(400, 'GUILD_MEMBER_NOT_FOUND') : new AppError(503, 'MEMBER_LOOKUP_UNAVAILABLE'); }
+    return { displayName: member.nick || member.user.global_name || member.user.username, username: member.user.username, ...(member.user.bot ? { bot: true } : {}) };
+  }
   async ticketStaff(user: string): Promise<import('./config.js').Actor> {
     const member = await this.rest.get(Routes.guildMember(this.env.DISCORD_GUILD_ID!, user)) as { roles: string[]; user?: { bot?: boolean } };
     if (member.user?.bot) throw new AppError(403, 'STAFF_ROLE_REQUIRED');
-    const roles = await this.participantRoles();
-    const permission = [this.env.DISCORD_GUILD_ID!, ...member.roles].reduce((bits, id) => bits | (roles.permissions.get(id) ?? 0n), 0n);
-    if (roles.owner === user || ids(this.env.SUPER_ADMIN_USER_IDS).includes(user) || (permission & PermissionFlagsBits.Administrator) !== 0n) return { id: user, role: 'SUPER_ADMIN' };
+    if (this.db) return effectiveStaff(this.db, this.env, user, member.roles);
+    if (ids(this.env.SUPER_ADMIN_USER_IDS).includes(user)) return { id: user, role: 'SUPER_ADMIN' };
     if (member.roles.some(id => ids(this.env.STAFF_ROLE_IDS).includes(id))) return { id: user, role: 'COMMUNITY_MANAGER' };
     if (member.roles.some(id => ids(this.env.MODERATOR_ROLE_IDS).includes(id))) return { id: user, role: 'MODERATOR' };
     if (member.roles.some(id => ids(this.env.SUPPORT_ROLE_IDS).includes(id))) return { id: user, role: 'SUPPORT' };
-    if ((permission & (PermissionFlagsBits.ManageMessages | PermissionFlagsBits.ModerateMembers)) !== 0n) return { id: user, role: 'MODERATOR' };
     throw new AppError(403, 'STAFF_ROLE_REQUIRED');
   }
   async syncTicket(channelId: string, cardId: string | null, ticket: Record<string, unknown>) {
@@ -112,13 +125,15 @@ export class DiscordTransport implements Transport {
     const me = await this.rest.get(Routes.user()) as { id: string };
     const access = PermissionFlagsBits.ViewChannel | PermissionFlagsBits.SendMessages | PermissionFlagsBits.ReadMessageHistory | PermissionFlagsBits.AttachFiles;
     const readOnly = PermissionFlagsBits.SendMessages | PermissionFlagsBits.SendMessagesInThreads | PermissionFlagsBits.AddReactions | PermissionFlagsBits.CreatePublicThreads | PermissionFlagsBits.CreatePrivateThreads;
+    const operators = await this.ticketOperators();
     const owner = String(ticket.creator_id);
     const staff = [...new Set([...ids(this.env.STAFF_ROLE_IDS), ...ids(this.env.MODERATOR_ROLE_IDS)])];
-    const users = [...new Set([me.id, ...ids(this.env.SUPER_ADMIN_USER_IDS), ...(ticket.assigned_to ? [String(ticket.assigned_to)] : [])])].filter(id => id !== owner);
+    const users = [...new Set([me.id, ...ids(this.env.SUPER_ADMIN_USER_IDS), ...operators.allowed, ...(ticket.assigned_to ? [String(ticket.assigned_to)] : [])])].filter(id => id !== owner && (!operators.denied.includes(id) || id === me.id || ids(this.env.SUPER_ADMIN_USER_IDS).includes(id)));
     await this.rest.patch(Routes.channel(channelId), { body: { permission_overwrites: [
       { id: this.env.DISCORD_GUILD_ID!, type: 0, deny: PermissionFlagsBits.ViewChannel.toString(), allow: '0' },
       ...staff.map(id => ({ id, type: 0, allow: access.toString(), deny: '0' })),
       ...users.map(id => ({ id, type: 1, allow: access.toString(), deny: '0' })),
+      ...[...operators.denied, ...operators.limited.filter(id => id !== ticket.assigned_to)].filter(id => id !== owner && id !== me.id && !ids(this.env.SUPER_ADMIN_USER_IDS).includes(id)).map(id => ({ id, type: 1, allow: '0', deny: PermissionFlagsBits.ViewChannel.toString() })),
       { id: owner, type: 1, allow: (ticket.status === 'CLOSED' ? PermissionFlagsBits.ViewChannel | PermissionFlagsBits.ReadMessageHistory : access).toString(), deny: ticket.status === 'CLOSED' ? readOnly.toString() : '0' },
     ] } });
     // Legacy tickets may predate the status card. Update permissions without posting a duplicate.

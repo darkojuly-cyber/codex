@@ -33,10 +33,18 @@ export function projectProcesses(processes: ProcessInfo[], root: string): Map<Se
   return groups;
 }
 
-export function localConfig(root: string, input: NodeJS.ProcessEnv) {
+export function quickTunnelOrigin(input: string) {
+  let value: URL;
+  try { value = new URL(input.trim()); } catch { throw new Error('Paste the HTTPS trycloudflare.com address printed by StartTunnel.cmd.'); }
+  if (value.protocol !== 'https:' || !/^[a-z0-9]+(?:-[a-z0-9]+)*\.trycloudflare\.com$/.test(value.hostname) || value.port || value.pathname !== '/' || value.search || value.hash || value.username || value.password) throw new Error('Use only the HTTPS trycloudflare.com origin, with no path, query, credentials or custom port.');
+  return value.origin;
+}
+
+export function localConfig(root: string, input: NodeJS.ProcessEnv, publicOrigin?: string) {
+  const tunnelOrigin = publicOrigin === undefined ? undefined : quickTunnelOrigin(publicOrigin);
   const env = Object.fromEntries(Object.entries(input).filter((entry): entry is [string,string] => !!entry[1]));
   const required = ['DATABASE_URL','DISCORD_TOKEN','DISCORD_GUILD_ID','DISCORD_CLIENT_ID','DISCORD_CLIENT_SECRET','DISCORD_REDIRECT_URI'];
-  const missing = required.filter(key => !env[key]);
+  const missing = required.filter(key => !env[key] && !(tunnelOrigin && key === 'DISCORD_REDIRECT_URI'));
   if (missing.length) throw new Error(`Missing settings in .env.local/.env: ${missing.join(', ')}`);
   const port = Number(env.PORT ?? 3210);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be a valid local TCP port.');
@@ -46,14 +54,14 @@ export function localConfig(root: string, input: NodeJS.ProcessEnv) {
   if (origin.protocol !== 'https:' || !['localhost','127.0.0.1','[::1]'].includes(origin.hostname) || origin.username || origin.password || origin.search || origin.hash || origin.pathname !== '/') throw new Error('This launcher requires a loopback HTTPS PUBLIC_ORIGIN, such as https://localhost:8443.');
   const tlsPort = Number(origin.port || 443);
   if (port === tlsPort) throw new Error('API and HTTPS must use different ports.');
-  if (env.DISCORD_REDIRECT_URI !== `${origin.origin}/api/auth/callback`) throw new Error(`DISCORD_REDIRECT_URI must be ${origin.origin}/api/auth/callback`);
+  if (!tunnelOrigin && env.DISCORD_REDIRECT_URI !== `${origin.origin}/api/auth/callback`) throw new Error(`DISCORD_REDIRECT_URI must be ${origin.origin}/api/auth/callback`);
   let database: URL;
   try { database = new URL(env.DATABASE_URL); } catch { throw new Error('DATABASE_URL must be a PostgreSQL connection URL.'); }
   if (!['postgres:', 'postgresql:'].includes(database.protocol)) throw new Error('This launcher requires external PostgreSQL; it does not start multiple local PGlite processes.');
   if (!/^\d{17,20}$/.test(env.DISCORD_GUILD_ID)) throw new Error('DISCORD_GUILD_ID must be a server ID.');
-  const childEnv: NodeJS.ProcessEnv = { ...input, APP_MODE: 'discord', HOST: '127.0.0.1', PORT: String(port), PUBLIC_ORIGIN: origin.origin };
+  const childEnv: NodeJS.ProcessEnv = { ...input, APP_MODE: 'discord', HOST: '127.0.0.1', PORT: String(port), PUBLIC_ORIGIN: tunnelOrigin ?? origin.origin, DISCORD_REDIRECT_URI: `${tunnelOrigin ?? origin.origin}/api/auth/callback` };
   return {
-    root, port, tlsPort, origin: origin.origin,
+    root, port, tlsPort, origin: tunnelOrigin ?? origin.origin, localOrigin: origin.origin, publicTunnel: !!tunnelOrigin,
     caddyExe: env.EVOMEME_CADDY_EXE ?? join(env.LOCALAPPDATA ?? '', 'EvoMemeTools', 'caddy.exe'),
     caddyFile: env.EVOMEME_CADDYFILE,
     rootCertificate: env.EVOMEME_CADDY_ROOT_CERT ?? join(env.APPDATA ?? '', 'Caddy', 'pki', 'authorities', 'local', 'root.crt'),

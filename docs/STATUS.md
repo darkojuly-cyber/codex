@@ -144,3 +144,9 @@ Evo Points 卡片本轮验证：lint/build、69 项本地测试和 8 项浏览�
 风险线索自动生成，可选择“外链＋明确诱导话术”和“大量提及”预设，无需自定义关键词也可启用；保留初次确认公开频道范围、私密内容排除与人工审核。普通创作链接、单独的诈骗讨论不因这些预设直接标记，预设不会删除、禁言或封禁。后台增加 Discord 原生 AutoMod 的广告拦截配置指引，没有创建或修改真实服务器规则。
 
 验证：lint/build、144 项单元/集成测试、15 项 Chromium 流程通过。新增验证包括旧数据迁移幂等、原始记录清理后累计保留、当前成员快照、无观测/已观察零事件、预设组合与误报边界、无关键词启用、每日图表交互和累计不随筛选变化。带数值的图表截图使用明确标注的 UI 测试数据，不是用户服务器真实统计；未连接线上 Discord 或 Neon，AutoMod 仍需在服务器设置中配置并用普通成员账号验收。
+
+## Cloudflare 临时外网分享（2026-10-28）
+
+新增 StartTunnel.cmd（官方 Windows x64 cloudflared 下载/复用、读取项目 PORT 并转发 loopback API）与 StartPublic.cmd（输入本次 Quick Tunnel 地址、提示登记 OAuth 回调、沿用原启动器管理 API/Caddy/Bot/Worker）。公网 Origin 与回调仅注入本次子进程，保留本地环境文件、Caddy 配置和原快捷方式；重复会话地址不同则拒绝混用，已有 API 的健康检查同时核对项目与 Origin，启动 Bot/Worker 前检查公网隧道。
+
+构建、lint、43 项启动器与核心/API 相关测试通过，覆盖本地/公网配置隔离、回调推导、恶意地址拒绝及原有角色/会话/CSRF 边界。官方 cloudflared Windows x64 下载 URL 已确认 HTTP 200。未在云端实际运行 Windows PowerShell、Caddy、真实 Cloudflare 隧道或 Discord OAuth；初次本机连接需用户完成 Portal 回调登记与验收。临时网址不是固定托管，不提供关机后持续运行能力。见 [操作指南](CLOUDFLARE_TUNNEL.md)。

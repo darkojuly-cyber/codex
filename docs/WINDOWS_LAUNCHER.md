@@ -96,3 +96,7 @@ EVOMEME_CADDY_ROOT_CERT=D:/Config/root.crt
 本轮结果：lint、TypeScript/Vite 构建、78 项本地测试及 8 项浏览器流程通过；其中真实 API 子进程在隔离 PGlite 数据库中启动并经 IPC 正常关闭、释放数据库锁。Windows 专属入口与 Caddy/Discord 联动尚未在 Windows 主机执行。
 
 Mimo 图片图标与键盘启动见 [MIMO_SHORTCUT.md](MIMO_SHORTCUT.md)。
+
+## 临时外网分享
+
+新增 `StartTunnel.cmd` 创建 Cloudflare Quick Tunnel，`StartPublic.cmd` 为本次进程注入公网地址及回调，Caddy/API 继续仅在本机绑定。无需编辑 `.env.local`，也不影响原来的 Mimo 本地快捷方式。需在 Discord Portal 登记本次回调，并保持两个窗口开启。见 [完整操作步骤](CLOUDFLARE_TUNNEL.md)。

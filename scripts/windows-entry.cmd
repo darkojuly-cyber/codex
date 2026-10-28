@@ -17,5 +17,5 @@ if not exist "node_modules\tsx\dist\loader.mjs" (
 node --import tsx "scripts\windows-launcher.ts" "%~1"
 set "_EVO_EXIT=%ERRORLEVEL%"
 if not "%_EVO_EXIT%"=="0" pause
-if "%_EVO_EXIT%"=="0" if /I not "%~1"=="start" pause
+if "%_EVO_EXIT%"=="0" if /I not "%~1"=="start" if /I not "%~1"=="public" pause
 exit /b %_EVO_EXIT%

@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { localConfig, redactOutput, projectId, projectProcesses, caddyConfiguration, sourceFingerprint } from '../scripts/local-launcher-utils.js';
+import { localConfig, redactOutput, projectId, projectProcesses, caddyConfiguration, sourceFingerprint, quickTunnelOrigin } from '../scripts/local-launcher-utils.js';
 import { newOwner, readOwner, claimSession, releaseSession, startControl, contactSession, type LauncherStatus } from '../scripts/local-launcher-state.js';
 
 const temporary: string[] = [];
@@ -27,6 +27,27 @@ it('uses the configured local origin and credentials, keeping privileged intents
   expect(() => localConfig('/project', { ...env, DISCORD_REDIRECT_URI: 'https://wrong.example/callback' })).toThrow('DISCORD_REDIRECT_URI');
   expect(() => localConfig('/project', { ...env, DISCORD_TOKEN: '' })).toThrow('DISCORD_TOKEN');
   expect(() => localConfig('/project', { ...env, DATABASE_URL: 'invalid-private-password' })).not.toThrow('invalid-private-password');
+});
+
+it('opts into a public Quick Tunnel without changing local proxy, saved settings or process scope', () => {
+  const original = structuredClone(env);
+  const origin = 'https://friendly-example-tunnel.trycloudflare.com';
+  const config = localConfig('/project', { ...env, MESSAGE_CONTENT_INTENT: 'true' }, origin);
+  expect(config.origin).toBe(origin); expect(config.localOrigin).toBe('https://localhost:8443');
+  expect(config.tlsPort).toBe(8443); expect(config.port).toBe(3210);
+  expect(config.publicTunnel).toBe(true); expect(config.env.HOST).toBe('127.0.0.1');
+  expect(config.env.PUBLIC_ORIGIN).toBe(origin);
+  expect(config.env.DISCORD_REDIRECT_URI).toBe(`${origin}/api/auth/callback`);
+  expect(config.env.MESSAGE_CONTENT_INTENT).toBe('true'); expect(env).toEqual(original);
+  expect(caddyConfiguration(config.localOrigin, config.port)).toContain('https://localhost:8443');
+  expect(localConfig('/project', env).publicTunnel).toBe(false);
+});
+
+it('rejects malformed tunnel origins instead of allowing arbitrary callback destinations', () => {
+  expect(quickTunnelOrigin(' https://friendly-example.trycloudflare.com/ ')).toBe('https://friendly-example.trycloudflare.com');
+  for (const value of ['http://friendly-example.trycloudflare.com','https://trycloudflare.com','https://example.com','https://127.0.0.1','https://localhost:8443','https://friendly-example.trycloudflare.com/other','https://friendly-example.trycloudflare.com?token=secret','https://user:secret@friendly-example.trycloudflare.com','https://friendly-example.trycloudflare.com:8443','https://friendly-example.trycloudflare.com.evil.test']) {
+    expect(() => localConfig('/project', env, value)).toThrow();
+  }
 });
 
 it('identifies only this folder’s Node services, including paths with spaces and URL encoding', () => {

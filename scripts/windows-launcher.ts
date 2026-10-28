@@ -9,7 +9,7 @@ import { createConnection } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadEnvironment } from '../packages/core/src/load-env.js';
-import { caddyConfiguration, localConfig, projectId, projectProcesses, redactOutput, sourceFingerprint, type ServiceRole, type ProcessInfo } from './local-launcher-utils.js';
+import { caddyConfiguration, localConfig, projectId, projectProcesses, redactOutput, sourceFingerprint, quickTunnelOrigin, type ServiceRole, type ProcessInfo } from './local-launcher-utils.js';
 import { claimSession, contactSession, isProcessAlive, newOwner, readOwner, releaseSession, startControl, type ServiceStatus, type LauncherStatus, type SessionOwner } from './local-launcher-state.js';
 import { createDesktopShortcut } from './windows-shortcut.js';
 
@@ -48,8 +48,8 @@ async function health(url: string, certificate?: string) {
     req.on('error', reject); req.setTimeout(2500, () => req.destroy(new Error('HTTPS health timed out.'))); req.end();
   });
 }
-function isOurHealth(value: Record<string, unknown>) {
-  return value.status === 'ok' && value.mode === 'DISCORD' && value.database === 'PostgreSQL' && value.localProjectId === id;
+function isOurHealth(value: Record<string, unknown>, origin: string) {
+  return value.status === 'ok' && value.mode === 'DISCORD' && value.database === 'PostgreSQL' && value.localProjectId === id && value.publicOrigin === origin;
 }
 async function processes() {
   const command = "$ErrorActionPreference = 'Stop'; [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); [pscustomobject]@{ bootId = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString('o'); processes = @(Get-CimInstance Win32_Process -Filter \"Name = 'node.exe'\" | Select-Object ProcessId,CommandLine,@{Name='CreatedAt';Expression={$_.CreationDate.ToUniversalTime().ToString('o')}}) } | ConvertTo-Json -Depth 4 -Compress";
@@ -71,9 +71,9 @@ async function ownerAlive(owner: SessionOwner) {
   } catch { return true; }
 }
 
-async function start() {
+async function start(publicOrigin?: string) {
   const env = { ...process.env }; loadEnvironment(env, root);
-  const config = localConfig(root, env);
+  const config = localConfig(root, env, publicOrigin);
   const owner = newOwner(id);
   const inspection = await processes();
   owner.bootId = inspection.bootId;
@@ -160,6 +160,7 @@ async function start() {
       const existing = await readOwner(stateDirectory);
       if (!existing) throw new Error('A launcher is starting; retry shortly.');
       const status = await contactSession(existing, id, 'status');
+      if (status.origin !== config.origin) throw new Error('Another one-click session uses a different address. Run Stop.cmd, then start the selected mode again.');
       console.log(`EvoMeme is already ${status.phase}. No duplicate services started.`);
       control.closeIdleConnections(); await new Promise<void>(resolve => control.close(() => resolve()));
       if (status.phase === 'ready') browser(status.origin);
@@ -186,21 +187,26 @@ async function start() {
     }
     const apiUrl = `http://127.0.0.1:${config.port}/api/health`;
     if (await openPort(config.port)) {
-      if (!isOurHealth(await health(apiUrl))) throw new Error(`Port ${config.port} is occupied by an incompatible API. Stop only this project's old API window, or choose a free PORT.`);
+      if (!isOurHealth(await health(apiUrl), config.origin)) throw new Error(`Port ${config.port} is occupied by an incompatible API. Stop only this project's old API window, or choose a free PORT.`);
       services.push({ role: 'API', owned: false, status: 'ready' }); log('API', 'Reusing the API already running for this folder.');
     } else {
       const { child, service } = launch('API', process.execPath, ['--import','tsx',join(root,'scripts/run-local-service.ts'),'API'], { ...config.env, DISCORD_WRITES_ENABLED: 'false' }, true);
-      await waitFor(async () => isOurHealth(await health(apiUrl)), 'API', child); service.status = 'ready';
+      await waitFor(async () => isOurHealth(await health(apiUrl), config.origin), 'API', child); service.status = 'ready';
     }
-    const httpsUrl = `${config.origin}/api/health`;
+    const httpsUrl = `${config.localOrigin}/api/health`;
     if (await openPort(config.tlsPort)) {
-      if (!isOurHealth(await health(httpsUrl, config.rootCertificate))) throw new Error(`HTTPS port ${config.tlsPort} does not lead to this project's API.`);
+      if (!isOurHealth(await health(httpsUrl, config.rootCertificate), config.origin)) throw new Error(`HTTPS port ${config.tlsPort} does not lead to this project's API.`);
       services.push({ role: 'Caddy', owned: false, status: 'ready' }); log('Caddy', 'Reusing the existing trusted HTTPS proxy.');
     } else {
       const file = config.caddyFile ?? join(stateDirectory, 'Caddyfile');
-      if (!config.caddyFile) await writeFile(file, caddyConfiguration(config.origin, config.port));
+      if (!config.caddyFile) await writeFile(file, caddyConfiguration(config.localOrigin, config.port));
       const { child, service } = launch('Caddy', config.caddyExe, ['run','--config',file,'--adapter','caddyfile'], config.env, false);
-      await waitFor(async () => isOurHealth(await health(httpsUrl, config.rootCertificate)), 'Caddy HTTPS', child); service.status = 'ready';
+      await waitFor(async () => isOurHealth(await health(httpsUrl, config.rootCertificate), config.origin), 'Caddy HTTPS', child); service.status = 'ready';
+    }
+    if (config.publicTunnel) {
+      log('Tunnel', `Checking ${config.origin}. Keep StartTunnel.cmd open.`);
+      await waitFor(async () => isOurHealth(await health(`${config.origin}/api/health`), config.origin), 'Public Cloudflare tunnel', undefined, 45000);
+      log('Tunnel', 'Verified public address reaches this project. Discord sign-in still requires the exact callback registered in the Developer Portal.');
     }
     const latestProcesses = projectProcesses((await processes()).processes, root);
     for (const role of ['Bot','Worker'] as const) if (latestProcesses.get(role)?.length) throw new Error(`A separate ${role} was started during setup. Stop its old window and retry.`);
@@ -220,13 +226,25 @@ async function start() {
 
 async function main() {
   const command = process.argv[2] ?? 'start';
-  if (command === '--help') { console.log('Windows: Start.cmd starts the console, API, Bot and Worker; Stop.cmd stops owned services; Status.cmd shows status; CreateShortcut.cmd adds a Mimo desktop icon and Ctrl+Alt+M hotkey.'); return; }
+  if (command === '--help') { console.log('Windows: StartPublic.cmd uses a running Cloudflare Quick Tunnel; Start.cmd starts the console, API, Bot and Worker; Stop.cmd stops owned services; Status.cmd shows status; CreateShortcut.cmd adds a Mimo desktop icon and Ctrl+Alt+M hotkey.'); return; }
   if (process.platform !== 'win32') throw new Error('Use this launcher on your Windows computer. The cloud environment continues to use npm run dev / npm run api.');
   const [major, minor] = process.versions.node.split('.').map(Number);
   if (major < 22 || (major === 22 && minor < 16)) throw new Error('Node.js 22.16 or later is required.');
   if (command === 'shortcut') { await createDesktopShortcut(root, process.argv[3]); return; }
   if (command === 'start') { await start(); return; }
-  if (!['stop','status'].includes(command)) throw new Error('Use Start.cmd, Stop.cmd or Status.cmd.');
+  if (command === 'public') {
+    const reader = createInterface({ input: process.stdin, output: process.stdout });
+    const ask = (prompt: string) => new Promise<string>(resolve => reader.question(prompt, resolve));
+    let publicOrigin: string;
+    try {
+      publicOrigin = quickTunnelOrigin(await ask('Paste the https://...trycloudflare.com address from StartTunnel.cmd: '));
+      console.log(`Discord OAuth2 Redirects must contain EXACTLY: ${publicOrigin}/api/auth/callback`);
+      console.log('Add that URL in the SAME Discord application as DISCORD_CLIENT_ID, then Save Changes. Do not change .env.local.');
+      await ask('After saving the Discord redirect, press Enter to start (Ctrl+C cancels): ');
+    } finally { reader.close(); }
+    await start(publicOrigin); return;
+  }
+  if (!['stop','status'].includes(command)) throw new Error('Use Start.cmd, StartPublic.cmd, Stop.cmd or Status.cmd.');
   const owner = await readOwner(stateDirectory);
   if (!owner) { console.log('No one-click session is running. Manually started services are not controlled here.'); return; }
   const status = await contactSession(owner, id, command as 'status' | 'stop');

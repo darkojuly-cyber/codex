@@ -34,7 +34,7 @@ export async function createApp(service: CommunityService, env: Env) {
   const paramId = (request: { params: unknown }) => z.object({ id: z.string().uuid() }).parse(request.params).id;
   app.get('/api/health', async () => {
     await service.db.query('SELECT 1');
-    return { status: 'ok', localProjectId: createHash('sha256').update(resolve(process.cwd()).toLowerCase()).digest('hex'), mode: env.APP_MODE.toUpperCase(), database: env.DATABASE_URL ? 'PostgreSQL' : 'PGlite (local)', discord: env.APP_MODE === 'mock' ? 'NOT_CONNECTED' : 'GATEWAY_STATUS_NOT_CHECKED', writesEnabled: env.DISCORD_WRITES_ENABLED === 'true' };
+    return { status: 'ok', publicOrigin: new URL(env.PUBLIC_ORIGIN).origin, localProjectId: createHash('sha256').update(resolve(process.cwd()).toLowerCase()).digest('hex'), mode: env.APP_MODE.toUpperCase(), database: env.DATABASE_URL ? 'PostgreSQL' : 'PGlite (local)', discord: env.APP_MODE === 'mock' ? 'NOT_CONNECTED' : 'GATEWAY_STATUS_NOT_CHECKED', writesEnabled: env.DISCORD_WRITES_ENABLED === 'true' };
   });
   app.get('/api/dashboard', request => service.dashboard(request.actor));
   app.post('/api/members/resolve', async request => {

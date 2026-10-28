@@ -82,3 +82,5 @@ Windows 已配置用户可在项目根目录双击 **Start.cmd**，统一启动 
 想使用 Mimo 图片图标和启动热键：保存图片后双击 **CreateShortcut.cmd**，选择图片。桌面生成 **Mimo - EvoMeme**，之后按 **Ctrl+Alt+M** 即可启动；见 [快捷方式说明](docs/MIMO_SHORTCUT.md)。
 
 人员昵称、统一配置入口、超级管理员授权、运营数据和关键词风险审核见 [社区运营指南](docs/COMMUNITY_OPERATIONS.md)。新增数据从 Bot 更新运行后开始采集，不补采关机期间历史。
+
+Windows 本机分享后台可使用 `StartTunnel.cmd` 与 `StartPublic.cmd`，保持原有本地配置不变。完整步骤见 [Cloudflare 临时隧道](docs/CLOUDFLARE_TUNNEL.md)。

@@ -150,3 +150,9 @@ Evo Points 卡片本轮验证：lint/build、69 项本地测试和 8 项浏览�
 新增 StartTunnel.cmd（官方 Windows x64 cloudflared 下载/复用、读取项目 PORT 并转发 loopback API）与 StartPublic.cmd（输入本次 Quick Tunnel 地址、提示登记 OAuth 回调、沿用原启动器管理 API/Caddy/Bot/Worker）。公网 Origin 与回调仅注入本次子进程，保留本地环境文件、Caddy 配置和原快捷方式；重复会话地址不同则拒绝混用，已有 API 的健康检查同时核对项目与 Origin，启动 Bot/Worker 前检查公网隧道。
 
 构建、lint、43 项启动器与核心/API 相关测试通过，覆盖本地/公网配置隔离、回调推导、恶意地址拒绝及原有角色/会话/CSRF 边界。官方 cloudflared Windows x64 下载 URL 已确认 HTTP 200。未在云端实际运行 Windows PowerShell、Caddy、真实 Cloudflare 隧道或 Discord OAuth；初次本机连接需用户完成 Portal 回调登记与验收。临时网址不是固定托管，不提供关机后持续运行能力。见 [操作指南](CLOUDFLARE_TUNNEL.md)。
+
+## 启动后补采入群（2026-11-04）
+
+开启 Server Members Intent 时，Bot 启动或 Gateway 会话恢复后通过官方 REST 分页扫描当前成员，补采监测开始以来、最后完整扫描之后、最近 30 天内仍在群里的人类成员加入记录。以真实 joined_at 归日，和实时事件使用同一去重键；扫描失败不推进持久检查点。不会补发欢迎卡、积分或变更历史离群状态，不能恢复已经离群成员或多次进出的旧记录。后台说明离线数据仍不完整，补采入群不把未知离群/发言填零。新增迁移 008。
+
+验证：149 项单元/集成测试、lint、build 通过；补采测试覆盖重复启动、实时事件竞争、分页中断重试、30 天/初次监测边界、机器人/无加入时间排除、按真实日期计数和保持未知指标。最后一处实时事件竞争调整后再次通过类型检查和 13 项运营测试。未连接用户的真实 Discord/Neon，需下载后启动验收。

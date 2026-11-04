@@ -7,6 +7,7 @@ import { readEnv } from '../packages/core/src/env.js';
 import { type Actor } from '../packages/core/src/config.js';
 import { observePublicMessage } from '../apps/discord-bot/src/operations-gateway.js';
 import { ChannelType, type Message } from 'discord.js';
+import { recoverMemberJoins } from '../apps/discord-bot/src/join-recovery.js';
 const root: Actor = { id: '123456789012345678', role: 'SUPER_ADMIN' };
 const manager: Actor = { id: '223456789012345678', role: 'COMMUNITY_MANAGER' };
 const mod: Actor = { id: '323456789012345678', role: 'MODERATOR' };
@@ -15,7 +16,7 @@ const channel = '523456789012345678';
 let db: Database, ops: Operations;
 beforeAll(async () => { db = await openDatabase(undefined, 'memory://'); await migrate(db); });
 afterAll(async () => { await db.close(); });
-beforeEach(async () => { await db.query('TRUNCATE community_lifetime,community_lifetime_speaker,community_capture_minute,member_profile,staff_access,operations_settings,community_event,risk_signal,gateway_observation,member_presence,admin_session,ticket CASCADE'); ops = new Operations(db, new MockTransport(), true); await ops.initialize(); });
+beforeEach(async () => { await db.query('TRUNCATE community_join_recovery,community_lifetime,community_lifetime_speaker,community_capture_minute,member_profile,staff_access,operations_settings,community_event,risk_signal,gateway_observation,member_presence,admin_session,ticket CASCADE'); ops = new Operations(db, new MockTransport(), true); await ops.initialize(); });
 it('deduplicates observed events, counts unique speakers across days and applies calendar boundaries', async () => {
   await ops.heartbeat(true, true, false);
   await ops.membership('JOIN', manager.id, 'one-join'); await ops.membership('JOIN', manager.id, 'one-join');
@@ -29,6 +30,50 @@ it('deduplicates observed events, counts unique speakers across days and applies
   expect(week.daily.reduce((sum, row) => sum + Number(row.speakers), 0)).toBe(3);
   expect((await ops.overview(mod, 1, 'Asia/Shanghai')).totals.messages).toBe(2);
   await expect(ops.overview(support, 7, 'UTC')).rejects.toMatchObject({ code: 'FORBIDDEN' });
+});
+it('recovers offline joins on their actual day, deduplicates live events and preserves unknown departures', async () => {
+  await ops.heartbeat(true, true, false);
+  await db.query("UPDATE gateway_observation SET started_at=now()-interval '5 days'");
+  const joinedAt = new Date(Date.now() - 2 * 86400000);
+  const member = { id: manager.id, user: { bot: false }, joinedAt };
+  const result = await recoverMemberJoins(ops, async () => [member, { ...member, id: root.id, user: { bot: true } }, { ...member, id: mod.id, joinedAt: null }]);
+  expect(result.recovered).toBe(1);
+  expect((await recoverMemberJoins(ops, async () => [member])).recovered).toBe(0);
+  const view = await ops.overview(mod, 7, 'UTC');
+  expect(view.totals.joins).toBe(1);
+  expect(view.lifetime.joins).toBe(1);
+  expect(view.daily.find(day => day.day === joinedAt.toISOString().slice(0, 10))).toMatchObject({ joins: 1, leaves: null, messages: null, speakers: null });
+  await ops.membership('LEAVE', manager.id, 'previous-leave');
+  await ops.membership('JOIN', manager.id, `join:${manager.id}:${joinedAt.getTime()}`, joinedAt);
+  expect((await db.query('SELECT state FROM member_presence WHERE user_id=$1', [manager.id]))[0].state).toBe('PRESENT');
+  expect((await ops.overview(mod, 7, 'UTC')).lifetime.joins).toBe(1);
+});
+it('does not advance a failed paginated scan and safely replays its saved records', async () => {
+  await ops.heartbeat(true, true, false);
+  await db.query("UPDATE gateway_observation SET started_at=now()-interval '5 days'");
+  const original = await ops.joinRecoveryWindow();
+  const joinedAt = new Date(Date.now() - 86400000);
+  const page = Array.from({ length: 1000 }, (_, i) => ({ id: String(BigInt(root.id) + BigInt(i)), user: { bot: i !== 0 }, joinedAt }));
+  const list = vi.fn().mockResolvedValueOnce(page).mockRejectedValueOnce(new Error('network unavailable'));
+  await expect(recoverMemberJoins(ops, list)).rejects.toThrow('network unavailable');
+  expect(list.mock.calls[1][0]).toBe(page[999].id);
+  expect((await ops.joinRecoveryWindow()).since).toEqual(original.since);
+  expect((await recoverMemberJoins(ops, async () => page.slice(0, 1))).recovered).toBe(0);
+  expect((await ops.overview(mod, 7, 'UTC')).lifetime.joins).toBe(1);
+});
+it('bounds recovery to monitoring start and thirty days, without changing live presence', async () => {
+  const fresh = await ops.joinRecoveryWindow();
+  const oldJoin = new Date(Date.now() - 86400000);
+  expect(await ops.recoverJoin(root.id, oldJoin, fresh)).toBe(0);
+  await db.query("UPDATE community_join_recovery SET completed_until=now()-interval '100 days'");
+  const window = await ops.joinRecoveryWindow();
+  expect(window.until.getTime() - window.since.getTime()).toBeLessThanOrEqual(30 * 86400000 + 1);
+  expect(await ops.recoverJoin(root.id, new Date(Date.now() - 31 * 86400000), window)).toBe(0);
+  expect(await ops.recoverJoin(root.id, new Date(window.until.getTime() + 1), window)).toBe(0);
+  expect(await ops.recoverJoin(root.id, new Date(NaN), window)).toBe(0);
+  await ops.membership('LEAVE', root.id, 'already-left');
+  expect(await ops.recoverJoin(root.id, oldJoin, window)).toBe(1);
+  expect((await db.query('SELECT state FROM member_presence WHERE user_id=$1', [root.id]))[0].state).toBe('ABSENT');
 });
 it('keeps nickname and ID distinct and falls back to the last observed nickname on provider failure', async () => {
   await ops.observeProfile(manager.id, '社区运营昵称', 'operator');

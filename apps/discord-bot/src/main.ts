@@ -14,6 +14,7 @@ import { handleTicketInteraction, ticketErrorText } from './tickets.js';
 import { pointsButtonIds } from './points-card.js';
 import { observePublicMessage } from './operations-gateway.js';
 import { DiscordTransport } from '../../../packages/core/src/transport.js';
+import { recoverMemberJoins } from './join-recovery.js';
 
 const preflight = readEnv();
 if (preflight.APP_MODE !== 'discord') throw new Error('Use the local Console simulator in mock mode. Gateway requires APP_MODE=discord.');
@@ -119,7 +120,21 @@ async function fetchBoost(user: string) {
   return service.transport instanceof DiscordTransport ? service.transport.boostSince(user) : null;
 }
 let monitoringTimer: ReturnType<typeof setInterval> | undefined;
+let recoveringJoins = false;
+async function recoverJoins() {
+  if (env.GUILD_MEMBERS_INTENT !== 'true' || recoveringJoins || !client.isReady()) return;
+  recoveringJoins = true;
+  try {
+    const guild = await client.guilds.fetch(env.DISCORD_GUILD_ID!);
+    const result = await recoverMemberJoins(service.operations, async after => [...(await guild.members.list({ limit: 1000, after, cache: false })).values()]);
+    console.log(JSON.stringify({ event: 'operations.joins_recovered', ...result }));
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'operations.join_recovery_failed', ...providerErrorDetails(error) }));
+  } finally { recoveringJoins = false; }
+}
+client.on('shardResume', () => { void recoverJoins(); });
 client.once('clientReady', () => {
+  void recoverJoins();
   const heartbeat = () => { if (client.isReady()) void service.operations.heartbeat(env.GUILD_MEMBERS_INTENT === 'true', true, env.MESSAGE_CONTENT_INTENT === 'true', client.guilds.cache.get(env.DISCORD_GUILD_ID!)?.memberCount).catch(welcomeFailed); };
   heartbeat(); monitoringTimer = setInterval(heartbeat, 30000); monitoringTimer.unref();
   void service.operations.cleanup().catch(welcomeFailed);

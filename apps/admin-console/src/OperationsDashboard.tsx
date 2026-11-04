@@ -19,7 +19,7 @@ export function OperationsDashboard({ api, refreshKey, locale, t, role }: { api:
   return <>
     {error && <p className="error" role="alert">{translateError(locale, error)}</p>}
     <section><div className="section-head"><h2>{t('Community activity')}</h2><label>{t('Reporting window')}<select value={days} onChange={event => setDays(Number(event.target.value))}>{[1,7,30].map(value => <option key={value} value={value}>{value} {t('calendar days')}</option>)}</select></label></div>
-      <p className="muted">{t('Human members and public-channel messages only. Active speakers are distinct members across the selected window. No historical backfill.')}</p>
+      <p className="muted">{t('Human members and public-channel messages only. Active speakers are distinct members across the selected window. Restart recovery can add recent joins of members still here; offline departures and messages remain incomplete.')}</p>
       {data && <><p>{t('Reporting timezone')}: {data.timezone} · {t('Updated')}: {formatDate(locale, data.generatedAt)}</p><p>{t('Collection started')}: {data.coverage ? formatDate(locale, data.coverage.started_at) : t('Not collecting yet')} · {t(fresh ? 'Bot online' : 'Bot offline or not observed')}</p><div className="member-snapshot"><span>{t('Current server members')}<small>{t('Includes bots; this is a current snapshot, not accumulated joins.')}</small></span><strong>{data.coverage?.member_count?.toLocaleString() ?? '—'}</strong>{!fresh && <span className="badge">{t('Last observed')}</span>}</div>
       <div className="metrics operations-metrics">{([
         ['Members joined', 'joins'], ['Members left', 'leaves'], ['Messages sent', 'messages'], ['Active speakers', 'speakers'],

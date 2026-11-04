@@ -59,18 +59,41 @@ export class Operations {
       await tx.query("INSERT INTO community_capture_minute(minute,members_seen,messages_seen) VALUES(date_trunc('minute',now()),$1,$2) ON CONFLICT(minute) DO UPDATE SET members_seen=community_capture_minute.members_seen OR $1,messages_seen=community_capture_minute.messages_seen OR $2", [members, messages]);
     });
   }
-  private async countEvent(tx: Queryable, key: string, kind: string, user: string, at: Date, channel: string | null = null) {
-    const rows = await tx.query('INSERT INTO community_event(event_key,kind,user_id,channel_id,occurred_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT(event_key) DO NOTHING RETURNING event_key', [key, kind, user, channel, at]);
-    if (!rows.length) return;
+  private async countEvent(tx: Queryable, key: string, kind: string, user: string, at: Date, channel: string | null = null, recovered = false) {
+    const rows = await tx.query('INSERT INTO community_event(event_key,kind,user_id,channel_id,occurred_at,recovered) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(event_key) DO NOTHING RETURNING event_key', [key, kind, user, channel, at, recovered]);
+    if (!rows.length) return 0;
     await tx.query("UPDATE community_lifetime SET joins=joins+CASE WHEN $1='JOIN' THEN 1 ELSE 0 END,leaves=leaves+CASE WHEN $1='LEAVE' THEN 1 ELSE 0 END,messages=messages+CASE WHEN $1='MESSAGE' THEN 1 ELSE 0 END WHERE id=1", [kind]);
     if (kind === 'MESSAGE') await tx.query('INSERT INTO community_lifetime_speaker(user_id) VALUES($1) ON CONFLICT(user_id) DO NOTHING', [user]);
+    return 1;
+  }
+  async joinRecoveryWindow() {
+    // Seed once from the beginning of monitoring, not today's heartbeat. A fresh
+    // installation starts now; an upgrade may recover an already observed gap.
+    await this.db.query('INSERT INTO community_join_recovery(id,completed_until) VALUES(1,COALESCE((SELECT started_at FROM gateway_observation WHERE id=1),now())) ON CONFLICT(id) DO NOTHING');
+    const [row] = await this.db.query("SELECT GREATEST(completed_until,now()-interval '30 days') AS since,now() AS until FROM community_join_recovery WHERE id=1");
+    return { since: new Date(row.since as string), until: new Date(row.until as string) };
+  }
+  async recoverJoin(user: string, joinedAt: Date, window: { since: Date; until: Date }) {
+    if (!Number.isFinite(joinedAt.getTime()) || joinedAt < window.since || joinedAt > window.until) return 0;
+    // Use exactly the live event key. Do not modify presence: a member may have
+    // left again while the REST snapshot was being processed.
+    return this.db.transaction(tx => this.countEvent(tx, `join:${user}:${joinedAt.getTime()}`, 'JOIN', user, joinedAt, null, true));
+  }
+  async completeJoinRecovery(until: Date) {
+    await this.db.query('UPDATE community_join_recovery SET completed_until=GREATEST(completed_until,$1) WHERE id=1', [until]);
   }
   async membership(kind: 'JOIN' | 'LEAVE', user: string, key: string, at = new Date()) {
     await this.db.transaction(async tx => {
       await tx.query('INSERT INTO member_presence(user_id) VALUES($1) ON CONFLICT(user_id) DO NOTHING', [user]);
       const [presence] = await tx.query('SELECT * FROM member_presence WHERE user_id=$1 FOR UPDATE', [user]);
       if (kind === 'LEAVE' && presence.state === 'ABSENT') return;
-      if (kind === 'JOIN' && (await tx.query('SELECT event_key FROM community_event WHERE event_key=$1', [key])).length) return;
+      if (kind === 'JOIN') {
+        const [existing] = await tx.query('SELECT recovered FROM community_event WHERE event_key=$1', [key]);
+        if (existing && !existing.recovered) return;
+        // A snapshot can win the race with the live JOIN handler. Still apply
+        // that first live transition, without incrementing its counter twice.
+        if (existing) await tx.query('UPDATE community_event SET recovered=false WHERE event_key=$1', [key]);
+      }
       const eventKey = kind === 'LEAVE' && presence.last_join_key ? `leave:${user}:${presence.last_join_key}` : key;
       await tx.query("UPDATE member_presence SET state=$2,last_join_key=CASE WHEN $2='PRESENT' THEN $3 ELSE last_join_key END WHERE user_id=$1", [user, kind === 'JOIN' ? 'PRESENT' : 'ABSENT', key]);
       await this.countEvent(tx, eventKey, kind, user, at);
@@ -92,15 +115,15 @@ export class Operations {
     const params = [timezone, days];
     const where = "occurred_at >= (date_trunc('day',now() AT TIME ZONE $1)-($2-1)*interval '1 day') AT TIME ZONE $1 AND occurred_at<=now()";
     const [totals] = await this.db.query(`SELECT count(*) FILTER(WHERE kind='JOIN')::int AS joins,count(*) FILTER(WHERE kind='LEAVE')::int AS leaves,count(*) FILTER(WHERE kind='MESSAGE')::int AS messages,count(DISTINCT user_id) FILTER(WHERE kind='MESSAGE')::int AS speakers FROM community_event WHERE ${where}`, params);
-    const observed = await this.db.query(`SELECT (occurred_at AT TIME ZONE $1)::date::text AS day,count(*) FILTER(WHERE kind='JOIN')::int AS joins,count(*) FILTER(WHERE kind='LEAVE')::int AS leaves,count(*) FILTER(WHERE kind='MESSAGE')::int AS messages,count(DISTINCT user_id) FILTER(WHERE kind='MESSAGE')::int AS speakers FROM community_event WHERE ${where} GROUP BY 1 ORDER BY 1`, params);
+    const observed = await this.db.query(`SELECT (occurred_at AT TIME ZONE $1)::date::text AS day,count(*) FILTER(WHERE kind='JOIN')::int AS joins,count(*) FILTER(WHERE kind='JOIN' AND NOT recovered)::int AS live_joins,count(*) FILTER(WHERE kind='LEAVE')::int AS leaves,count(*) FILTER(WHERE kind='MESSAGE')::int AS messages,count(DISTINCT user_id) FILTER(WHERE kind='MESSAGE')::int AS speakers FROM community_event WHERE ${where} GROUP BY 1 ORDER BY 1`, params);
     const calendar = await this.db.query("SELECT d::date::text AS day FROM generate_series((now() AT TIME ZONE $1)::date-($2::integer-1),(now() AT TIME ZONE $1)::date,interval '1 day') d", params);
     const capture = await this.db.query("SELECT (minute AT TIME ZONE $1)::date::text AS day,bool_or(members_seen) AS members,bool_or(messages_seen) AS messages FROM community_capture_minute WHERE minute>=((now() AT TIME ZONE $1)::date-($2::integer-1)) AT TIME ZONE $1 GROUP BY 1", params);
     const daily = calendar.map(bucket => {
       const row = observed.find(item => item.day === bucket.day);
       const seen = capture.find(item => item.day === bucket.day);
-      const members = !!seen?.members || Number(row?.joins ?? 0) + Number(row?.leaves ?? 0) > 0;
+      const members = !!seen?.members || Number(row?.live_joins ?? 0) + Number(row?.leaves ?? 0) > 0;
       const messages = !!seen?.messages || Number(row?.messages ?? 0) > 0;
-      return { day: String(bucket.day), joins: members ? Number(row?.joins ?? 0) : null, leaves: members ? Number(row?.leaves ?? 0) : null, messages: messages ? Number(row?.messages ?? 0) : null, speakers: messages ? Number(row?.speakers ?? 0) : null };
+      return { day: String(bucket.day), joins: members || Number(row?.joins ?? 0) > 0 ? Number(row?.joins ?? 0) : null, leaves: members ? Number(row?.leaves ?? 0) : null, messages: messages ? Number(row?.messages ?? 0) : null, speakers: messages ? Number(row?.speakers ?? 0) : null };
     });
     const [all] = await this.db.query('SELECT l.*,(SELECT count(*)::integer FROM community_lifetime_speaker) AS speakers FROM community_lifetime l WHERE id=1');
     const lifetime = { joins: Number(all.joins), leaves: Number(all.leaves), messages: Number(all.messages), speakers: Number(all.speakers), startedAt: all.started_at, legacyLimited: all.legacy_limited };

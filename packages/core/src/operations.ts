@@ -82,6 +82,30 @@ export class Operations {
   async completeJoinRecovery(until: Date) {
     await this.db.query('UPDATE community_join_recovery SET completed_until=GREATEST(completed_until,$1) WHERE id=1', [until]);
   }
+  async messageRecoveryAllowed(channel: string, parent: string | null) {
+    return !(await this.db.query('SELECT id FROM ticket WHERE private_channel_id=$1 OR private_channel_id=$2 LIMIT 1', [channel, parent])).length;
+  }
+  async messageRecoveryWindow(channel: string) {
+    await this.db.query('INSERT INTO community_message_recovery(channel_id,completed_until) VALUES($1,COALESCE((SELECT started_at FROM gateway_observation WHERE id=1),now())) ON CONFLICT(channel_id) DO NOTHING', [channel]);
+    const [row] = await this.db.query("SELECT GREATEST(completed_until,now()-interval '30 days') AS since,now() AS until FROM community_message_recovery WHERE channel_id=$1", [channel]);
+    return { since: new Date(row.since as string), until: new Date(row.until as string) };
+  }
+  async recoverMessages(channel: string, parent: string | null, messages: { id: string; user: string; at: Date }[], window: { since: Date; until: Date }) {
+    if (!await this.messageRecoveryAllowed(channel, parent)) return 0;
+    const eligible = messages.filter(message => Number.isFinite(message.at.getTime()) && message.at >= window.since && message.at <= window.until);
+    if (!eligible.length) return 0;
+    return this.db.transaction(async tx => {
+      // Batch metadata only. Never invoke message(), XP or risk classification.
+      const inserted = await tx.query("INSERT INTO community_event(event_key,kind,user_id,channel_id,occurred_at,recovered) SELECT id,'MESSAGE',user_id,$2,at,true FROM jsonb_to_recordset($1::jsonb) AS m(id text,user_id text,at timestamptz) ON CONFLICT(event_key) DO NOTHING RETURNING user_id", [JSON.stringify(eligible.map(message => ({ id: message.id, user_id: message.user, at: message.at.toISOString() }))), channel]);
+      if (!inserted.length) return 0;
+      await tx.query('UPDATE community_lifetime SET messages=messages+$1 WHERE id=1', [inserted.length]);
+      await tx.query('INSERT INTO community_lifetime_speaker(user_id) SELECT DISTINCT value FROM jsonb_array_elements_text($1::jsonb) ON CONFLICT(user_id) DO NOTHING', [JSON.stringify(inserted.map(row => row.user_id))]);
+      return inserted.length;
+    });
+  }
+  async completeMessageRecovery(channel: string, until: Date) {
+    await this.db.query('UPDATE community_message_recovery SET completed_until=GREATEST(completed_until,$2) WHERE channel_id=$1', [channel, until]);
+  }
   async membership(kind: 'JOIN' | 'LEAVE', user: string, key: string, at = new Date()) {
     await this.db.transaction(async tx => {
       await tx.query('INSERT INTO member_presence(user_id) VALUES($1) ON CONFLICT(user_id) DO NOTHING', [user]);

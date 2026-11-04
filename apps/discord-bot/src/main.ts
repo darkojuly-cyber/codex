@@ -15,6 +15,7 @@ import { pointsButtonIds } from './points-card.js';
 import { observePublicMessage } from './operations-gateway.js';
 import { DiscordTransport } from '../../../packages/core/src/transport.js';
 import { recoverMemberJoins } from './join-recovery.js';
+import { recoverGuildMessages } from './message-recovery.js';
 
 const preflight = readEnv();
 if (preflight.APP_MODE !== 'discord') throw new Error('Use the local Console simulator in mock mode. Gateway requires APP_MODE=discord.');
@@ -121,6 +122,21 @@ async function fetchBoost(user: string) {
 }
 let monitoringTimer: ReturnType<typeof setInterval> | undefined;
 let recoveringJoins = false;
+let recoveringMessages = false;
+async function recoverMessages() {
+  if (recoveringMessages || !client.isReady()) return;
+  recoveringMessages = true;
+  console.log(JSON.stringify({ event: 'operations.message_recovery_started' }));
+  try {
+    const guild = await client.guilds.fetch(env.DISCORD_GUILD_ID!);
+    await recoverGuildMessages(guild, service.operations,
+      event => console.log(JSON.stringify(event)),
+      (channel, error) => console.error(JSON.stringify({ event: 'operations.message_recovery_failed', channel, ...providerErrorDetails(error) })));
+    console.log(JSON.stringify({ event: 'operations.message_recovery_finished' }));
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'operations.message_recovery_failed', ...providerErrorDetails(error) }));
+  } finally { recoveringMessages = false; }
+}
 async function recoverJoins() {
   if (env.GUILD_MEMBERS_INTENT !== 'true' || recoveringJoins || !client.isReady()) return;
   recoveringJoins = true;
@@ -132,9 +148,10 @@ async function recoverJoins() {
     console.error(JSON.stringify({ event: 'operations.join_recovery_failed', ...providerErrorDetails(error) }));
   } finally { recoveringJoins = false; }
 }
-client.on('shardResume', () => { void recoverJoins(); });
+client.on('shardResume', () => { void recoverJoins(); void recoverMessages(); });
 client.once('clientReady', () => {
   void recoverJoins();
+  void recoverMessages();
   const heartbeat = () => { if (client.isReady()) void service.operations.heartbeat(env.GUILD_MEMBERS_INTENT === 'true', true, env.MESSAGE_CONTENT_INTENT === 'true', client.guilds.cache.get(env.DISCORD_GUILD_ID!)?.memberCount).catch(welcomeFailed); };
   heartbeat(); monitoringTimer = setInterval(heartbeat, 30000); monitoringTimer.unref();
   void service.operations.cleanup().catch(welcomeFailed);

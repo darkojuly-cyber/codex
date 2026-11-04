@@ -16,7 +16,7 @@ const channel = '523456789012345678';
 let db: Database, ops: Operations;
 beforeAll(async () => { db = await openDatabase(undefined, 'memory://'); await migrate(db); });
 afterAll(async () => { await db.close(); });
-beforeEach(async () => { await db.query('TRUNCATE community_join_recovery,community_lifetime,community_lifetime_speaker,community_capture_minute,member_profile,staff_access,operations_settings,community_event,risk_signal,gateway_observation,member_presence,admin_session,ticket CASCADE'); ops = new Operations(db, new MockTransport(), true); await ops.initialize(); });
+beforeEach(async () => { await db.query('TRUNCATE community_message_recovery,community_join_recovery,community_lifetime,community_lifetime_speaker,community_capture_minute,member_profile,staff_access,operations_settings,community_event,risk_signal,gateway_observation,member_presence,admin_session,ticket CASCADE'); ops = new Operations(db, new MockTransport(), true); await ops.initialize(); });
 it('deduplicates observed events, counts unique speakers across days and applies calendar boundaries', async () => {
   await ops.heartbeat(true, true, false);
   await ops.membership('JOIN', manager.id, 'one-join'); await ops.membership('JOIN', manager.id, 'one-join');

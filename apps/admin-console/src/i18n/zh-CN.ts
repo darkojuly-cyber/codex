@@ -74,7 +74,7 @@ export const zhCN: Record<string, string> = {
   "Collection started": "开始采集",
   "Updated": "更新时间",
   "Reporting timezone": "统计时区",
-  "Human members and public-channel messages only. Active speakers are distinct members across the selected window. Restart recovery can add recent joins of members still here; offline departures and messages remain incomplete.": "仅统计非机器人账号和公开频道消息，发言人数按所选时段去重。重启可补采仍在群里的成员近期入群记录；停机期间的离群和发言数据仍不完整。",
+  "Human members and public-channel messages only. Active speakers are distinct members across the selected window. Restart recovery checks recent joins and readable public-message history. Deleted messages, departed members and offline departures may remain missing.": "仅统计非机器人账号和公开频道消息，发言人数按所选时段去重。重启会补采近期入群及可读取的公开历史消息；已删除消息、已离群成员的入群及停机期间离群仍可能缺失。",
   "calendar days": "个自然日",
   "Reporting window": "统计范围",
   "Community activity": "社区运营数据",
